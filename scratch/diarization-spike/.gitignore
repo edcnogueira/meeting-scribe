@@ -1,0 +1,9 @@
+# Downloaded ONNX models (large binaries, fetched via download_models.sh)
+models/
+# Generated synthetic test audio (regenerate via make_audio.py)
+audio/
+# Rust build artifacts
+target/
+Cargo.lock
+# Results dump
+results.json

@@ -1,0 +1,26 @@
+[package]
+name = "diarization-spike"
+version = "0.1.0"
+edition = "2021"
+
+# Empty [workspace] table => this crate is its own workspace root and is NOT
+# pulled into the repo's main workspace at frontend/src-tauri.
+[workspace]
+
+[dependencies]
+# Same ONNX Runtime version as the app (frontend/src-tauri/Cargo.toml).
+# Pinned so the re-exported ndarray version matches our direct ndarray dep.
+# Default features include download-binary, so ORT is fetched automatically.
+ort = { version = "=2.0.0-rc.10" }
+ndarray = "0.16"
+rustfft = "6"
+hound = "3.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "diarize"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
