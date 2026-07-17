@@ -2,7 +2,7 @@
 
 **Privacy-first AI meeting assistant with local speaker diarization.**
 
-Records your microphone and system audio, transcribes locally with Whisper, tells you **who said what** (speaker diarization with a voice-profile registry — fully on-device), and generates structured summaries with local or cloud LLMs. Nothing leaves your machine unless you explicitly configure a cloud provider.
+Records your microphone and system audio, transcribes locally with Whisper, tells you **who said what** (speaker diarization with a voice-profile registry — fully on-device), organizes meetings into **real folders on disk** by project or company, and generates structured summaries — with automatic, dated meeting titles — using local LLMs, cloud providers, or the AI subscription CLIs you already pay for. Nothing leaves your machine unless you explicitly configure a cloud provider.
 
 > **Personal project.** This is a heavily customized derivative of
 > [Meetily (Zackriya-Solutions/meeting-minutes)](https://github.com/Zackriya-Solutions/meeting-minutes),
@@ -24,12 +24,14 @@ Records your microphone and system audio, transcribes locally with Whisper, tell
 | **Local speaker diarization** | Post-recording pipeline: pyannote segmentation + WeSpeaker embeddings running on ONNX Runtime (`ort`), agglomerative clustering, timestamp-overlap attribution. The mic track is labeled deterministically as *you* — no model guessing involved. |
 | **Speaker identity registry** | A local registry of people with voice profiles (embeddings in SQLite). Rename "Speaker 1" to "João" once — next meeting, João is recognized automatically (cosine similarity ≥ 0.65). Deleting a person wipes their biometric data. |
 | **Speaker-aware UI** | Colored speaker labels in transcripts, a per-meeting speakers panel (rename, re-diarize, expected-participants hint), diarization settings with model download, and an opt-in speaker-prefixed transcript for LLM summaries. |
-| **CLI Agent summary provider** | Generate summaries through a locally installed subscription CLI — `codex` (OpenAI), `claude` (Claude Code, Anthropic), or `gemini` (Google) — or any custom command. No API keys: it reuses the CLI's own login. Pick it under *Settings → Summary Model → CLI Agent*, with a preset selector, an installed/not-found badge, and a Test button. ⚠️ **Privacy:** unlike the fully local Built-in AI / Ollama options, this sends the full transcript — including any assigned speaker names — to the chosen CLI, which forwards it to that subscription provider's servers. It leaves your machine. |
+| **CLI Agent summary provider** | Generate summaries through a locally installed subscription CLI — `codex` (OpenAI), `claude` (Claude Code, Anthropic), or `gemini` (Google) — or any custom command. No API keys: it reuses the CLI's own login. Pick it under *Settings → Summary Model → CLI Agent*, with a preset selector, an installed/not-found badge, and a Test button. Summaries are speaker-aware: with diarization done and the speaker-prefix toggle on, action items come out attributed by name. ⚠️ **Privacy:** unlike the fully local Built-in AI / Ollama options, this sends the full transcript — including any assigned speaker names — to the chosen CLI, which forwards it to that subscription provider's servers. It leaves your machine. |
+| **Meeting folders, mirrored on disk** | Organize meetings by project or company directly in the sidebar. Every folder in the app is a real directory under the recordings folder — what you see in the app is exactly what you see in Finder, and both stay in sync (create, rename, move, delete from the app; refresh picks up changes made outside it). Pre-existing meetings land in *Unfiled*. |
+| **Automatic dated meeting titles** | When a summary is generated, the placeholder recording title (`Meeting 17_07_26...`) becomes `YYYY-MM-DD - <specific subject>`, using the meeting's date and the subject the LLM extracted. Titles you set by hand are never overwritten. |
 | **No phone-home** | Upstream auto-updater removed — builds are produced and installed locally. |
 
 Everything else — recording pipeline, Whisper/Parakeet transcription, VAD, summary templates, LLM providers (built-in llama.cpp sidecar, Ollama, Claude, OpenAI, Groq, OpenRouter, custom endpoint, and the CLI Agent above) — comes from upstream Meetily v0.4.0 and works as documented there.
 
-See [docs/DIARIZATION.md](docs/DIARIZATION.md) for how the diarization pipeline works, and [tasks/](tasks/README.md) for the task-by-task implementation history (D1–D5).
+See [docs/DIARIZATION.md](docs/DIARIZATION.md) for how the diarization pipeline works, and [tasks/](tasks/README.md) for the task-by-task implementation history (diarization D1–D5, CLI provider C1–C3, organization O1–O2).
 
 ## How it works
 
@@ -46,6 +48,9 @@ Diarization (post-recording):
                  → clustering → registry match  ┘    → colored labels in UI
 
 Summary:  transcript (+ optional speaker prefixes) → template → LLM of your choice
+              → summary + meeting title "YYYY-MM-DD - <subject>"
+
+Organization:  sidebar folder tree ⇄ real directories under the recordings folder
 ```
 
 ## Getting started (macOS, Apple Silicon)
@@ -65,8 +70,8 @@ cd frontend
 pnpm install
 pnpm run tauri:build
 
-# 3. Install
-cp -R src-tauri/target/release/bundle/macos/meetily.app /Applications/
+# 3. Install (the bundle is produced in the workspace-root target/)
+cp -R ../target/release/bundle/macos/meetily.app /Applications/
 ```
 
 For development: `pnpm run tauri:dev`. Full build details (Windows/Linux, GPU flags) in [docs/BUILDING.md](docs/BUILDING.md) — inherited from upstream and still accurate.
