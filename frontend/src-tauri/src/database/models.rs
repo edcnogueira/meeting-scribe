@@ -99,12 +99,23 @@ pub struct Setting {
     #[sqlx(rename = "customOpenAIConfig")]
     #[serde(rename = "customOpenAIConfig")]
     pub custom_openai_config: Option<String>,
+    /// CLI agent provider configuration stored as JSON
+    #[sqlx(rename = "cliAgentConfig")]
+    #[serde(rename = "cliAgentConfig")]
+    pub cli_agent_config: Option<String>,
 }
 
 impl Setting {
     /// Parse the custom OpenAI config from JSON string
     pub fn get_custom_openai_config(&self) -> Option<crate::summary::CustomOpenAIConfig> {
         self.custom_openai_config.as_ref().and_then(|json| {
+            serde_json::from_str(json).ok()
+        })
+    }
+
+    /// Parse the CLI agent config from JSON string
+    pub fn get_cli_agent_config(&self) -> Option<crate::summary::CliAgentConfig> {
+        self.cli_agent_config.as_ref().and_then(|json| {
             serde_json::from_str(json).ok()
         })
     }

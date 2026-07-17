@@ -13,7 +13,7 @@ use crate::{
         },
     },
     state::AppState,
-    summary::CustomOpenAIConfig,
+    summary::{CliAgentConfig, CustomOpenAIConfig},
 };
 
 // Hardcoded server URL
@@ -1391,6 +1391,148 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
             } else {
                 Err(format!("Connection failed: {}", e))
             }
+        }
+    }
+}
+
+// ===== CLI AGENT API COMMANDS =====
+
+/// Saves the CLI agent configuration.
+/// The config is stored as JSON: preset (codex/claude/gemini/custom), plus an
+/// optional command + args (required only for the "custom" preset) and timeout.
+#[tauri::command]
+pub async fn api_save_cli_agent_config<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    preset: String,
+    command: Option<String>,
+    args: Option<Vec<String>>,
+    timeout_secs: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    log_info!("api_save_cli_agent_config called: preset='{}'", &preset);
+
+    let preset = preset.trim().to_string();
+    const VALID_PRESETS: &[&str] = &["codex", "claude", "gemini", "custom"];
+    if !VALID_PRESETS.contains(&preset.as_str()) {
+        return Err(format!(
+            "Invalid preset '{}'. Expected one of: codex, claude, gemini, custom",
+            preset
+        ));
+    }
+
+    // The custom preset requires an explicit command; named presets ignore it.
+    let command = command.filter(|c| !c.trim().is_empty());
+    if preset == "custom" && command.is_none() {
+        return Err("Custom preset requires a 'command' to run".to_string());
+    }
+
+    if let Some(secs) = timeout_secs {
+        if secs == 0 {
+            return Err("Timeout must be at least 1 second".to_string());
+        }
+    }
+
+    let config = CliAgentConfig {
+        preset: preset.clone(),
+        command: command.map(|c| c.trim().to_string()),
+        args,
+        timeout_secs,
+    };
+
+    let pool = state.db_manager.pool();
+
+    match SettingsRepository::save_cli_agent_config(pool, &config).await {
+        Ok(()) => {
+            log_info!("✅ Successfully saved CLI agent config (preset: {})", preset);
+            Ok(serde_json::json!({
+                "status": "success",
+                "message": "CLI agent configuration saved successfully"
+            }))
+        }
+        Err(e) => {
+            log_error!("❌ Failed to save CLI agent config: {}", e);
+            Err(format!("Failed to save CLI agent configuration: {}", e))
+        }
+    }
+}
+
+/// Gets the CLI agent configuration.
+#[tauri::command]
+pub async fn api_get_cli_agent_config<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<CliAgentConfig>, String> {
+    log_info!("api_get_cli_agent_config called");
+
+    let pool = state.db_manager.pool();
+
+    match SettingsRepository::get_cli_agent_config(pool).await {
+        Ok(config) => {
+            if let Some(ref c) = config {
+                log_info!("✅ Found CLI agent config: preset='{}'", c.preset);
+            } else {
+                log_info!("No CLI agent config found");
+            }
+            Ok(config)
+        }
+        Err(e) => {
+            log_error!("❌ Failed to get CLI agent config: {}", e);
+            Err(format!("Failed to get CLI agent configuration: {}", e))
+        }
+    }
+}
+
+/// Tests that the configured CLI agent is installed and reachable by running its
+/// `--version`. Does not send a prompt (that would consume the user's quota); a
+/// successful spawn + zero exit confirms the binary is on PATH and runnable.
+#[tauri::command]
+pub async fn api_test_cli_agent_connection<R: Runtime>(
+    _app: AppHandle<R>,
+    preset: String,
+    command: Option<String>,
+    args: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    use crate::summary::cli_agent;
+    log_info!("api_test_cli_agent_connection called: preset='{}'", &preset);
+
+    let config = CliAgentConfig {
+        preset: preset.trim().to_string(),
+        command: command.filter(|c| !c.trim().is_empty()),
+        args,
+        timeout_secs: Some(30),
+    };
+
+    // Resolve to a concrete command; run `<command> --version` one-shot.
+    let invocation = cli_agent::resolve_invocation(&config)?;
+
+    match cli_agent::process::run_cli_process(
+        &invocation.command,
+        &["--version".to_string()],
+        "",
+        std::time::Duration::from_secs(30),
+        None,
+    )
+    .await
+    {
+        Ok(output) => {
+            let version = cli_agent::process::sanitize_cli_stdout(&output.stdout);
+            log_info!(
+                "✅ CLI agent '{}' reachable: {}",
+                invocation.command,
+                version
+            );
+            Ok(serde_json::json!({
+                "status": "success",
+                "message": format!("'{}' is installed and reachable", invocation.command),
+                "version": version,
+            }))
+        }
+        Err(e) => {
+            log_warn!("⚠️ CLI agent connection test failed: {}", e);
+            Err(format!(
+                "Could not run '{}': {}. Make sure the CLI is installed and on your PATH.",
+                invocation.command, e
+            ))
         }
     }
 }

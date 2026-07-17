@@ -73,6 +73,7 @@ pub enum LLMProvider {
     OpenRouter,
     BuiltInAI,
     CustomOpenAI,
+    CliAgent,
 }
 
 impl LLMProvider {
@@ -86,6 +87,7 @@ impl LLMProvider {
             "openrouter" => Ok(Self::OpenRouter),
             "builtin-ai" | "local-llama" | "localllama" => Ok(Self::BuiltInAI),
             "custom-openai" => Ok(Self::CustomOpenAI),
+            "cli-agent" => Ok(Self::CliAgent),
             _ => Err(format!("Unsupported LLM provider: {}", s)),
         }
     }
@@ -124,12 +126,27 @@ pub async fn generate_summary(
     top_p: Option<f32>,
     app_data_dir: Option<&PathBuf>,
     cancellation_token: Option<&CancellationToken>,
+    cli_agent_config: Option<&crate::summary::CliAgentConfig>,
 ) -> Result<String, String> {
     // Check if cancelled before starting
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
             return Err("Summary generation was cancelled".to_string());
         }
+    }
+
+    // Handle CliAgent provider separately (spawns an installed AI CLI one-shot,
+    // no HTTP API). Mirrors the BuiltInAI early-return below.
+    if provider == &LLMProvider::CliAgent {
+        let config = cli_agent_config
+            .ok_or_else(|| "CLI agent config is required for cli-agent provider".to_string())?;
+        return crate::summary::cli_agent::generate_with_cli_agent(
+            config,
+            system_prompt,
+            user_prompt,
+            cancellation_token,
+        )
+        .await;
     }
 
     // Handle BuiltInAI provider separately (uses local sidecar, no HTTP API)
@@ -197,6 +214,10 @@ pub async fn generate_summary(
         LLMProvider::BuiltInAI => {
             // This case is handled earlier with early returns
             unreachable!("BuiltInAI is handled before this match statement")
+        }
+        LLMProvider::CliAgent => {
+            // This case is handled earlier with early returns
+            unreachable!("CliAgent is handled before this match statement")
         }
     };
 
@@ -342,5 +363,6 @@ fn provider_name(provider: &LLMProvider) -> &str {
         LLMProvider::BuiltInAI => "Built-in AI",
         LLMProvider::OpenRouter => "OpenRouter",
         LLMProvider::CustomOpenAI => "Custom OpenAI",
+        LLMProvider::CliAgent => "CLI Agent",
     }
 }

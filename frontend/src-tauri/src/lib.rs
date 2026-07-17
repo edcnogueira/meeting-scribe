@@ -687,6 +687,10 @@ pub fn run() {
             api::api_save_custom_openai_config,
             api::api_get_custom_openai_config,
             api::api_test_custom_openai_connection,
+            // CLI agent commands
+            api::api_save_cli_agent_config,
+            api::api_get_cli_agent_config,
+            api::api_test_cli_agent_connection,
             // Summary commands
             summary::commands::api_process_transcript,
             summary::commands::api_get_summary,
