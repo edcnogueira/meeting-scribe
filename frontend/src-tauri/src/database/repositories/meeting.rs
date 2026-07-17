@@ -229,6 +229,57 @@ impl MeetingsRepository {
         transaction.commit().await?;
         Ok(true)
     }
+
+    /// Update a single meeting's `folder_path` (used when moving a meeting to a
+    /// different organization folder). O1.
+    pub async fn update_folder_path(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        folder_path: &str,
+    ) -> Result<bool, SqlxError> {
+        if meeting_id.trim().is_empty() {
+            return Err(SqlxError::Protocol(
+                "meeting_id cannot be empty".to_string(),
+            ));
+        }
+
+        let now = Utc::now().naive_utc();
+        let result = sqlx::query("UPDATE meetings SET folder_path = ?, updated_at = ? WHERE id = ?")
+            .bind(folder_path)
+            .bind(now)
+            .bind(meeting_id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Re-point many meetings at once in a single transaction (used when an
+    /// organization folder is renamed and every meeting under it must have its
+    /// `folder_path` prefix rewritten). O1.
+    pub async fn update_folder_paths(
+        pool: &SqlitePool,
+        updates: &[(String, String)],
+    ) -> Result<u64, SqlxError> {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let mut transaction = pool.begin().await?;
+        let now = Utc::now().naive_utc();
+        let mut total = 0u64;
+        for (meeting_id, folder_path) in updates {
+            let result =
+                sqlx::query("UPDATE meetings SET folder_path = ?, updated_at = ? WHERE id = ?")
+                    .bind(folder_path)
+                    .bind(now)
+                    .bind(meeting_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            total += result.rows_affected();
+        }
+        transaction.commit().await?;
+        Ok(total)
+    }
 }
 
 async fn delete_meeting_with_transaction(

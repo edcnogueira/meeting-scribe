@@ -7,16 +7,43 @@ import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 
 
-interface SidebarItem {
+export interface SidebarItem {
   id: string;
   title: string;
   type: 'folder' | 'file';
   children?: SidebarItem[];
+  // O1 folder-organization metadata (all optional so legacy usage keeps working):
+  path?: string;                       // folder path (folders) or meeting dir path (meetings)
+  missing?: boolean;                   // meeting whose directory is gone from disk
+  folderKind?: 'root' | 'org' | 'unfiled'; // discriminator for folder nodes
+  isEmpty?: boolean;                   // folder has no children (drives delete-enable)
+  parentFolderPath?: string | null;    // meeting's containing folder (null = root/unfiled)
 }
 
 export interface CurrentMeeting {
   id: string;
   title: string;
+}
+
+// ---- O1: folder tree mirrored from disk (shape returned by the Rust command) ----
+export interface MeetingNode {
+  id: string | null;
+  title: string;
+  path: string | null;
+  missing: boolean;
+}
+
+export interface FolderNode {
+  name: string;
+  path: string;
+  folders: FolderNode[];
+  meetings: MeetingNode[];
+}
+
+export interface MeetingFolderTree {
+  base_path: string;
+  folders: FolderNode[];
+  unfiled: MeetingNode[];
 }
 
 // Search result type for transcript search
@@ -52,6 +79,13 @@ interface SidebarContextType {
   // Refetch meetings from backend
   refetchMeetings: () => Promise<void>;
 
+  // O1: folder organization mirrored on disk
+  folderTree: MeetingFolderTree | null;
+  refreshFolderTree: () => Promise<void>;
+  createFolder: (parentPath: string | null, name: string) => Promise<void>;
+  renameFolder: (path: string, newName: string) => Promise<void>;
+  deleteFolder: (path: string) => Promise<void>;
+  moveMeeting: (meetingId: string, targetFolderPath: string | null) => Promise<void>;
 }
 
 const SidebarContext = createContext<SidebarContextType | null>(null);
@@ -75,6 +109,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [serverAddress, setServerAddress] = useState('');
   const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   const [activeSummaryPolls, setActiveSummaryPolls] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  const [folderTree, setFolderTree] = useState<MeetingFolderTree | null>(null);
 
   // Use recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
@@ -105,6 +140,40 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     fetchMeetings();
   }, [serverAddress, fetchMeetings]);
 
+  // ---- O1: folder tree management ----
+  const refreshFolderTree = React.useCallback(async () => {
+    try {
+      const tree = await invoke('api_list_meeting_folder_tree') as MeetingFolderTree;
+      setFolderTree(tree);
+    } catch (error) {
+      console.error('Error loading folder tree:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshFolderTree();
+  }, [refreshFolderTree]);
+
+  const createFolder = React.useCallback(async (parentPath: string | null, name: string) => {
+    await invoke('api_create_meeting_folder', { parentPath, name });
+    await refreshFolderTree();
+  }, [refreshFolderTree]);
+
+  const renameFolder = React.useCallback(async (path: string, newName: string) => {
+    await invoke('api_rename_meeting_folder', { path, newName });
+    await refreshFolderTree();
+  }, [refreshFolderTree]);
+
+  const deleteFolder = React.useCallback(async (path: string) => {
+    await invoke('api_delete_meeting_folder', { path });
+    await refreshFolderTree();
+  }, [refreshFolderTree]);
+
+  const moveMeeting = React.useCallback(async (meetingId: string, targetFolderPath: string | null) => {
+    await invoke('api_move_meeting_to_folder', { meetingId, targetFolderPath });
+    await refreshFolderTree();
+  }, [refreshFolderTree]);
+
   useEffect(() => {
     const fetchSettings = async () => {
       setServerAddress('http://localhost:5167');
@@ -113,17 +182,77 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     fetchSettings();
   }, []);
 
-  const baseItems: SidebarItem[] = [
-    {
-      id: 'meetings',
-      title: 'Meeting Notes',
-      type: 'folder' as const,
-      children: [
-        ...meetings.map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const }))
-      ]
-    },
-  ];
+  // ---- O1: build the sidebar tree from the on-disk folder tree ----
+  const meetingNodeToItem = React.useCallback(
+    (m: MeetingNode, parentFolderPath: string | null): SidebarItem => ({
+      id: m.id ?? `orphan:${m.path ?? m.title}`,
+      title: m.title,
+      type: 'file',
+      path: m.path ?? undefined,
+      missing: m.missing,
+      parentFolderPath,
+    }),
+    []
+  );
 
+  const folderNodeToItem = React.useCallback(
+    (folder: FolderNode): SidebarItem => {
+      const childFolders = folder.folders.map(folderNodeToItem);
+      const childMeetings = folder.meetings.map(m => meetingNodeToItem(m, folder.path));
+      const children = [...childFolders, ...childMeetings];
+      return {
+        id: `folder:${folder.path}`,
+        title: folder.name,
+        type: 'folder',
+        children,
+        path: folder.path,
+        folderKind: 'org',
+        isEmpty: children.length === 0,
+        parentFolderPath: null,
+      };
+    },
+    [meetingNodeToItem]
+  );
+
+  const buildSidebarItems = React.useCallback((): SidebarItem[] => {
+    if (folderTree) {
+      const orgItems = folderTree.folders.map(folderNodeToItem);
+      const children: SidebarItem[] = [...orgItems];
+      if (folderTree.unfiled.length > 0) {
+        children.push({
+          id: '__unfiled__',
+          title: 'Unfiled',
+          type: 'folder',
+          folderKind: 'unfiled',
+          isEmpty: folderTree.unfiled.length === 0,
+          parentFolderPath: null,
+          children: folderTree.unfiled.map(m => meetingNodeToItem(m, null)),
+        });
+      }
+      return [
+        {
+          id: 'meetings',
+          title: 'Meeting Notes',
+          type: 'folder',
+          folderKind: 'root',
+          path: folderTree.base_path,
+          parentFolderPath: null,
+          children,
+        },
+      ];
+    }
+
+    // Fallback (tree not loaded yet): flat list from the meetings we already have.
+    return [
+      {
+        id: 'meetings',
+        title: 'Meeting Notes',
+        type: 'folder',
+        folderKind: 'root',
+        children: meetings.map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const })),
+      },
+    ];
+  }, [folderTree, meetings, folderNodeToItem, meetingNodeToItem]);
 
   const toggleCollapse = () => {
     setIsCollapsed(!isCollapsed);
@@ -134,13 +263,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     if (pathname === '/') {
       setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
     }
-    setSidebarItems(baseItems);
-  }, [pathname]);
+    setSidebarItems(buildSidebarItems());
+  }, [pathname, buildSidebarItems]);
 
-  // Update sidebar items when meetings change
+  // Rebuild sidebar items when the folder tree (or meetings fallback) changes
   useEffect(() => {
-    setSidebarItems(baseItems);
-  }, [meetings]);
+    setSidebarItems(buildSidebarItems());
+  }, [buildSidebarItems]);
 
   // Function to handle recording toggle from sidebar
   const handleRecordingToggle = () => {
@@ -312,7 +441,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       startSummaryPolling,
       stopSummaryPolling,
       refetchMeetings: fetchMeetings,
-
+      folderTree,
+      refreshFolderTree,
+      createFolder,
+      renameFolder,
+      deleteFolder,
+      moveMeeting,
     }}>
       {children}
     </SidebarContext.Provider>

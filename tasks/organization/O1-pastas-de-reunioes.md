@@ -15,23 +15,23 @@
 
 ### Backend (Rust)
 
-- [ ] Comandos Tauri (registrar no `generate_handler!`):
+- [x] Comandos Tauri (registrar no `generate_handler!`):
   - `api_list_meeting_folder_tree` — escaneia a base recursivamente e devolve a árvore (pastas de organização + reuniões vinculadas por `folder_path`; reuniões na raiz = grupo "Unfiled").
   - `api_create_meeting_folder(parent_path?, name)` — aninhamento permitido; sanitizar com a mesma `sanitize_filename` de `audio/audio_processing.rs`; erro em colisão.
   - `api_rename_meeting_folder(path, new_name)` — `fs::rename` + UPDATE de **prefixo** em `folder_path` de todas as reuniões abaixo (uma transação).
   - `api_delete_meeting_folder(path)` — **só pasta vazia** na v1 (sem reuniões nem subpastas); erro claro caso contrário.
   - `api_move_meeting_to_folder(meeting_id, target_folder_path?)` — `None`/raiz = Unfiled; validar colisão de nome no destino.
-- [ ] Segurança de caminho: toda operação valida que o path resolvido está **dentro da base de gravações** (canonicalize + starts_with) — nunca aceitar path arbitrário do JS.
-- [ ] Mudanças externas (Finder): re-scan sob demanda (o tree é lido do disco a cada `api_list_meeting_folder_tree`); reunião cujo diretório sumiu → item marcado `missing` na resposta (não crashar, não deletar do DB).
-- [ ] Reuniões legadas (`folder_path` NULL ou na raiz): aparecem em "Unfiled", sem migração automática.
-- [ ] Testes unitários com diretório temporário: criar/renomear/mover/deletar, colisão, pasta não-vazia, prefixo de `folder_path` atualizado, path fora da base rejeitado.
+- [x] Segurança de caminho: toda operação valida que o path resolvido está **dentro da base de gravações** (canonicalize + starts_with) — nunca aceitar path arbitrário do JS.
+- [x] Mudanças externas (Finder): re-scan sob demanda (o tree é lido do disco a cada `api_list_meeting_folder_tree`); reunião cujo diretório sumiu → item marcado `missing` na resposta (não crashar, não deletar do DB).
+- [x] Reuniões legadas (`folder_path` NULL ou na raiz): aparecem em "Unfiled", sem migração automática.
+- [x] Testes unitários com diretório temporário: criar/renomear/mover/deletar, colisão, pasta não-vazia, prefixo de `folder_path` atualizado, path fora da base rejeitado.
 
 ### Frontend
 
-- [ ] `SidebarProvider.tsx` (~linha 116): substituir o nó único plano "Meeting Notes" pela árvore do `api_list_meeting_folder_tree` — pastas expansíveis/colapsáveis (persistir estado expandido em localStorage), reuniões como folhas, "Unfiled" no final.
-- [ ] Gestão por menu de contexto: Nova pasta (raiz e em pasta), Renomear, Excluir (desabilitado se não-vazia, com tooltip), e "Mover para pasta..." na reunião (dialog com a árvore). Drag & drop fica **fora da v1**.
-- [ ] Botão/ação de refresh da árvore (cobre mudanças feitas no Finder).
-- [ ] Item `missing` com indicação visual e sem navegação quebrada.
+- [x] `SidebarProvider.tsx` (~linha 116): substituir o nó único plano "Meeting Notes" pela árvore do `api_list_meeting_folder_tree` — pastas expansíveis/colapsáveis (persistir estado expandido em localStorage), reuniões como folhas, "Unfiled" no final.
+- [x] Gestão por menu de contexto: Nova pasta (raiz e em pasta), Renomear, Excluir (desabilitado se não-vazia, com tooltip), e "Mover para pasta..." na reunião (dialog com a árvore). Drag & drop fica **fora da v1**.
+- [x] Botão/ação de refresh da árvore (cobre mudanças feitas no Finder).
+- [x] Item `missing` com indicação visual e sem navegação quebrada.
 
 ## Critérios de aceite
 

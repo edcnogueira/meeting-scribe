@@ -680,6 +680,12 @@ pub fn run() {
             api::api_save_meeting_title,
             api::api_save_transcript,
             api::open_meeting_folder,
+            // Meeting folder organization (O1)
+            api::meeting_folders::api_list_meeting_folder_tree,
+            api::meeting_folders::api_create_meeting_folder,
+            api::meeting_folders::api_rename_meeting_folder,
+            api::meeting_folders::api_delete_meeting_folder,
+            api::meeting_folders::api_move_meeting_to_folder,
             api::test_backend_connection,
             api::debug_backend_connection,
             api::open_external_url,
