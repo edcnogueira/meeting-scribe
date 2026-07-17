@@ -29,7 +29,7 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       const data = await invoke('api_get_model_config') as any;
       if (data && data.provider !== null) {
         // Fetch API key if not included and provider requires it
-        if (data.provider !== 'ollama' && data.provider !== 'builtin-ai' && !data.apiKey) {
+        if (data.provider !== 'ollama' && data.provider !== 'builtin-ai' && data.provider !== 'cli-agent' && !data.apiKey) {
           try {
             const apiKeyData = await invoke('api_get_api_key', {
               provider: data.provider
@@ -56,6 +56,21 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
             }
           } catch (err) {
             console.error('Failed to fetch custom OpenAI config:', err);
+          }
+        }
+        // Fetch CLI agent config if that's the active provider (mirrors custom-openai)
+        if (data.provider === 'cli-agent') {
+          try {
+            const cliConfig = (await invoke('api_get_cli_agent_config')) as any;
+            if (cliConfig) {
+              data.cliAgentPreset = cliConfig.preset || null;
+              data.cliAgentCommand = cliConfig.command || null;
+              data.cliAgentArgs = Array.isArray(cliConfig.args) ? cliConfig.args : null;
+              // Use the preset id as the model label for cli-agent
+              data.model = cliConfig.preset || data.model;
+            }
+          } catch (err) {
+            console.error('Failed to fetch CLI agent config:', err);
           }
         }
         setModelConfig(data);

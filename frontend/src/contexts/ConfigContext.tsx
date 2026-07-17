@@ -370,6 +370,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     'builtin-ai': [],
     'custom-openai': [],
+    'cli-agent': [], // No model list — the CLI decides its own model
   };
 
   // Toggle confidence indicator with localStorage persistence

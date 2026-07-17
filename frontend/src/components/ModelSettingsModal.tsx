@@ -31,7 +31,7 @@ import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'cli-agent';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -43,7 +43,20 @@ export interface ModelConfig {
   maxTokens?: number | null;
   temperature?: number | null;
   topP?: number | null;
+  // CLI Agent fields (only populated when provider is 'cli-agent')
+  cliAgentPreset?: string | null;
+  cliAgentCommand?: string | null;
+  cliAgentArgs?: string[] | null;
 }
+
+// CLI agent presets surfaced in the settings UI. `custom` lets the user point at
+// any installed binary that reads a prompt from stdin and writes markdown to stdout.
+const CLI_AGENT_PRESETS: { id: string; label: string; hint: string }[] = [
+  { id: 'codex', label: 'Codex (OpenAI)', hint: 'codex login' },
+  { id: 'claude', label: 'Claude Code (Anthropic)', hint: 'claude — then complete the login flow' },
+  { id: 'gemini', label: 'Gemini (Google)', hint: 'gemini — then complete the login flow' },
+  { id: 'custom', label: 'Custom command', hint: 'any CLI that reads the prompt from stdin' },
+];
 
 interface OllamaModel {
   name: string;
@@ -155,6 +168,21 @@ export function ModelSettingsModal({
   const [isCustomOpenAIAdvancedOpen, setIsCustomOpenAIAdvancedOpen] = useState<boolean>(false);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
 
+  // CLI Agent state
+  const [cliAgentPreset, setCliAgentPreset] = useState<string>(modelConfig.cliAgentPreset || 'codex');
+  const [cliAgentCommand, setCliAgentCommand] = useState<string>(modelConfig.cliAgentCommand || '');
+  const [cliAgentArgs, setCliAgentArgs] = useState<string>((modelConfig.cliAgentArgs || []).join(' '));
+  const [cliAgentInstallStatus, setCliAgentInstallStatus] =
+    useState<'unknown' | 'checking' | 'installed' | 'not-found'>('unknown');
+  const [cliAgentTestResult, setCliAgentTestResult] =
+    useState<{ ok: boolean; message: string } | null>(null);
+  const [isTestingCliAgent, setIsTestingCliAgent] = useState<boolean>(false);
+  const cliAgentConfigLoaded = useRef<boolean>(false);
+
+  // Split a whitespace-separated args string into a clean array (custom preset only)
+  const parseCliAgentArgs = (raw: string): string[] =>
+    raw.split(/\s+/).map((a) => a.trim()).filter((a) => a.length > 0);
+
   // Combobox state
   const [modelComboboxOpen, setModelComboboxOpen] = useState<boolean>(false);
 
@@ -231,6 +259,7 @@ export function ModelSettingsModal({
     openrouter: openRouterModels.map((m) => m.id),
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
+    'cli-agent': [], // No model list — the CLI decides its own model
   };
 
   const requiresApiKey =
@@ -249,10 +278,15 @@ export function ModelSettingsModal({
     !customOpenAIModel.trim()
   );
 
+  // CLI agent validation: the custom preset needs an explicit command
+  const isCliAgentInvalid =
+    modelConfig.provider === 'cli-agent' && cliAgentPreset === 'custom' && !cliAgentCommand.trim();
+
   const isDoneDisabled =
     (requiresApiKey && (!apiKey || (typeof apiKey === 'string' && !apiKey.trim()))) ||
     (modelConfig.provider === 'ollama' && ollamaEndpointChanged) ||
-    isCustomOpenAIInvalid;
+    isCustomOpenAIInvalid ||
+    isCliAgentInvalid;
 
   useEffect(() => {
     const fetchModelConfig = async () => {
@@ -368,6 +402,33 @@ export function ModelSettingsModal({
     modelConfig.temperature,
     modelConfig.topP
   ]);
+
+  // Load the saved CLI agent config whenever cli-agent becomes the active provider.
+  // Owns its own fetch (independent of skipInitialFetch) so it works both when the
+  // modal manages config itself and when a parent (SummaryModelSettings) does.
+  useEffect(() => {
+    if (modelConfig.provider !== 'cli-agent' || cliAgentConfigLoaded.current) return;
+    cliAgentConfigLoaded.current = true;
+
+    invoke<any>('api_get_cli_agent_config')
+      .then((config) => {
+        if (config) {
+          setCliAgentPreset(config.preset || 'codex');
+          setCliAgentCommand(config.command || '');
+          setCliAgentArgs(Array.isArray(config.args) ? config.args.join(' ') : '');
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load CLI agent config:', err);
+      });
+  }, [modelConfig.provider]);
+
+  // Allow re-loading if the user switches away from cli-agent and back
+  useEffect(() => {
+    if (modelConfig.provider !== 'cli-agent') {
+      cliAgentConfigLoaded.current = false;
+    }
+  }, [modelConfig.provider]);
 
   // Reset hasAutoFetched flag and clear models when switching away from Ollama
   useEffect(() => {
@@ -615,6 +676,23 @@ export function ModelSettingsModal({
   }, [models, openRouterModels, builtinAiModels, openaiModels, claudeModels, groqModels, modelConfig.provider]);
 
   const handleSave = async () => {
+    // For cli-agent provider, persist the CLI agent config first
+    if (modelConfig.provider === 'cli-agent') {
+      try {
+        await invoke('api_save_cli_agent_config', {
+          preset: cliAgentPreset,
+          command: cliAgentPreset === 'custom' ? (cliAgentCommand.trim() || null) : null,
+          args: cliAgentPreset === 'custom' ? parseCliAgentArgs(cliAgentArgs) : null,
+          timeoutSecs: null,
+        });
+        console.log('CLI agent config saved successfully');
+      } catch (err) {
+        console.error('Failed to save CLI agent config:', err);
+        toast.error(err instanceof Error ? err.message : 'Failed to save CLI agent configuration');
+        return;
+      }
+    }
+
     // For custom-openai provider, save the custom config first
     if (modelConfig.provider === 'custom-openai') {
       try {
@@ -647,8 +725,16 @@ export function ModelSettingsModal({
       maxTokens: modelConfig.provider === 'custom-openai' && customMaxTokens ? parseInt(customMaxTokens, 10) : null,
       temperature: modelConfig.provider === 'custom-openai' && customTemperature ? parseFloat(customTemperature) : null,
       topP: modelConfig.provider === 'custom-openai' && customTopP ? parseFloat(customTopP) : null,
-      // For custom-openai, use the customOpenAIModel as the model field
-      model: modelConfig.provider === 'custom-openai' ? customOpenAIModel.trim() : modelConfig.model,
+      // CLI agent fields
+      cliAgentPreset: modelConfig.provider === 'cli-agent' ? cliAgentPreset : null,
+      cliAgentCommand: modelConfig.provider === 'cli-agent' && cliAgentPreset === 'custom' ? (cliAgentCommand.trim() || null) : null,
+      cliAgentArgs: modelConfig.provider === 'cli-agent' && cliAgentPreset === 'custom' ? parseCliAgentArgs(cliAgentArgs) : null,
+      // For custom-openai use the model name; for cli-agent use the preset id as the model label
+      model: modelConfig.provider === 'custom-openai'
+        ? customOpenAIModel.trim()
+        : modelConfig.provider === 'cli-agent'
+          ? cliAgentPreset
+          : modelConfig.model,
     };
     setModelConfig(updatedConfig);
     console.log('ModelSettingsModal - handleSave - Updated ModelConfig:', updatedConfig);
@@ -666,6 +752,63 @@ export function ModelSettingsModal({
     }
 
     onSave(updatedConfig);
+  };
+
+  // Lightweight install probe that drives the preset badge (no toast, no prompt).
+  const checkCliAgentInstall = async (preset: string, command: string, argsRaw: string) => {
+    if (preset === 'custom' && !command.trim()) {
+      setCliAgentInstallStatus('unknown');
+      return;
+    }
+    setCliAgentInstallStatus('checking');
+    try {
+      await invoke('api_test_cli_agent_connection', {
+        preset,
+        command: preset === 'custom' ? command.trim() : null,
+        args: preset === 'custom' ? parseCliAgentArgs(argsRaw) : null,
+      });
+      setCliAgentInstallStatus('installed');
+    } catch (err) {
+      setCliAgentInstallStatus('not-found');
+    }
+  };
+
+  // Auto-probe install status when cli-agent is active and the preset/command changes.
+  useEffect(() => {
+    if (modelConfig.provider !== 'cli-agent') return;
+    const timer = setTimeout(() => {
+      checkCliAgentInstall(cliAgentPreset, cliAgentCommand, cliAgentArgs);
+    }, 400); // debounce custom command typing
+    return () => clearTimeout(timer);
+  }, [modelConfig.provider, cliAgentPreset, cliAgentCommand, cliAgentArgs]);
+
+  // Explicit Test button: surfaces a visible success/error result inline.
+  const handleTestCliAgent = async () => {
+    if (cliAgentPreset === 'custom' && !cliAgentCommand.trim()) {
+      setCliAgentTestResult({ ok: false, message: 'Enter a command to run first.' });
+      return;
+    }
+    setIsTestingCliAgent(true);
+    setCliAgentTestResult(null);
+    try {
+      const result = await invoke<{ status: string; message: string; version?: string }>(
+        'api_test_cli_agent_connection',
+        {
+          preset: cliAgentPreset,
+          command: cliAgentPreset === 'custom' ? cliAgentCommand.trim() : null,
+          args: cliAgentPreset === 'custom' ? parseCliAgentArgs(cliAgentArgs) : null,
+        }
+      );
+      const detail = result.version ? `${result.message} (${result.version})` : result.message;
+      setCliAgentTestResult({ ok: true, message: detail || 'CLI is installed and reachable.' });
+      setCliAgentInstallStatus('installed');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setCliAgentTestResult({ ok: false, message: errorMsg });
+      setCliAgentInstallStatus('not-found');
+    } finally {
+      setIsTestingCliAgent(false);
+    }
   };
 
   // Test custom OpenAI connection
@@ -853,6 +996,21 @@ export function ModelSettingsModal({
                   loadBuiltinAiModels();
                 }
 
+                // Load CLI agent config when selected
+                if (provider === 'cli-agent') {
+                  cliAgentConfigLoaded.current = true;
+                  setCliAgentTestResult(null);
+                  invoke<any>('api_get_cli_agent_config').then((config) => {
+                    if (config) {
+                      setCliAgentPreset(config.preset || 'codex');
+                      setCliAgentCommand(config.command || '');
+                      setCliAgentArgs(Array.isArray(config.args) ? config.args.join(' ') : '');
+                    }
+                  }).catch((err) => {
+                    console.error('Failed to load CLI agent config:', err);
+                  });
+                }
+
                 // Load custom OpenAI config when selected
                 if (provider === 'custom-openai') {
                   invoke<any>('api_get_custom_openai_config').then((config) => {
@@ -876,6 +1034,7 @@ export function ModelSettingsModal({
               <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="cli-agent">CLI Agent (Codex, Claude Code, Gemini)</SelectItem>
                 <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
                 <SelectItem value="ollama">Ollama</SelectItem>
@@ -884,7 +1043,7 @@ export function ModelSettingsModal({
               </SelectContent>
             </Select>
 
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
+            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && modelConfig.provider !== 'cli-agent' && (
               <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1067,6 +1226,140 @@ export function ModelSettingsModal({
                 </>
               )}
             </Button>
+          </div>
+        )}
+
+        {/* CLI Agent Configuration Section */}
+        {modelConfig.provider === 'cli-agent' && (
+          <div className="space-y-4 border-t pt-4">
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="cli-agent-preset">CLI</Label>
+                {/* Install status badge, driven by api_test_cli_agent_connection */}
+                {cliAgentInstallStatus === 'checking' && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    checking…
+                  </span>
+                )}
+                {cliAgentInstallStatus === 'installed' && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                    <CheckCircle2 className="h-3 w-3" />
+                    installed
+                  </span>
+                )}
+                {cliAgentInstallStatus === 'not-found' && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                    <XCircle className="h-3 w-3" />
+                    not found
+                  </span>
+                )}
+              </div>
+              <Select
+                value={cliAgentPreset}
+                onValueChange={(value) => {
+                  setCliAgentPreset(value);
+                  setCliAgentTestResult(null);
+                  setCliAgentInstallStatus('unknown');
+                }}
+              >
+                <SelectTrigger id="cli-agent-preset" className="mt-1">
+                  <SelectValue placeholder="Select a CLI" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLI_AGENT_PRESETS.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Runs your installed AI CLI as a one-shot subprocess. No API key needed — it uses the
+                CLI&apos;s own login. The model is decided by the CLI itself.
+              </p>
+            </div>
+
+            {/* Custom command fields */}
+            {cliAgentPreset === 'custom' && (
+              <>
+                <div>
+                  <Label htmlFor="cli-agent-command">Command *</Label>
+                  <Input
+                    id="cli-agent-command"
+                    value={cliAgentCommand}
+                    onChange={(e) => setCliAgentCommand(e.target.value)}
+                    placeholder="/usr/local/bin/my-llm"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Binary that reads the prompt from stdin and writes markdown to stdout.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="cli-agent-args">Arguments (optional)</Label>
+                  <Input
+                    id="cli-agent-args"
+                    value={cliAgentArgs}
+                    onChange={(e) => setCliAgentArgs(e.target.value)}
+                    placeholder="run --stdin"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Space-separated. The transcript is always delivered via stdin, never as an argument.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Speaker attribution discoverability */}
+            <Alert>
+              <AlertDescription className="text-xs">
+                With speaker diarization done and the <strong>&quot;Include speakers in summary&quot;</strong>{' '}
+                toggle enabled (Diarization settings), summaries attribute decisions and action items by
+                speaker name. If that toggle is off, the transcript is sent without names and the summary
+                won&apos;t reference who said what.
+              </AlertDescription>
+            </Alert>
+
+            {/* Privacy note */}
+            <Alert className="border-yellow-500 bg-yellow-50">
+              <AlertDescription className="text-xs text-yellow-800">
+                Privacy: the full transcript — including any assigned speaker names — is sent to the chosen
+                CLI, which forwards it to that subscription provider&apos;s servers. This leaves your machine,
+                unlike the fully local Built-in AI / Ollama options.
+              </AlertDescription>
+            </Alert>
+
+            {/* Test button + inline result */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleTestCliAgent}
+              disabled={isTestingCliAgent || (cliAgentPreset === 'custom' && !cliAgentCommand.trim())}
+              className="w-full"
+            >
+              {isTestingCliAgent ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Testing…
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Test CLI
+                </>
+              )}
+            </Button>
+
+            {cliAgentTestResult && (
+              <Alert className={cn(cliAgentTestResult.ok ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50')}>
+                <AlertDescription className={cn('text-xs', cliAgentTestResult.ok ? 'text-green-800' : 'text-red-800')}>
+                  {cliAgentTestResult.message}
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
         )}
 
