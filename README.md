@@ -1,3 +1,11 @@
+> **Personal fork notice** — This is a personal, heavily customized derivative of
+> [Meetily (Zackriya-Solutions/meeting-minutes)](https://github.com/Zackriya-Solutions/meeting-minutes),
+> used and maintained by @edcnogueira under the MIT license. All credit for the original
+> application goes to Zackriya Solutions. Notable additions in this fork: separate mic/system
+> audio tracks, local speaker diarization (ONNX) and a voice-profile speaker registry.
+> Auto-update is disabled — builds are produced and installed locally. Use at your own pace;
+> anything here may change to fit one person's workflow.
+
 <div align="center" style="border-bottom: none">
     <h1>
         <img src="docs/Meetily-6.png" style="border-radius: 10px;" />

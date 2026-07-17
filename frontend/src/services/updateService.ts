@@ -38,7 +38,18 @@ export class UpdateService {
    * @param force Force check even if recently checked
    * @returns Promise with update information
    */
+  // Personal fork: auto-update is disabled — this build is maintained locally
+  // and must never be replaced by upstream release artifacts.
+  private readonly AUTO_UPDATE_DISABLED: boolean = true;
+
   async checkForUpdates(force = false): Promise<UpdateInfo> {
+    if (this.AUTO_UPDATE_DISABLED) {
+      return {
+        available: false,
+        currentVersion: await getVersion(),
+      };
+    }
+
     // Prevent concurrent update checks
     if (this.updateCheckInProgress) {
       throw new Error('Update check already in progress');
