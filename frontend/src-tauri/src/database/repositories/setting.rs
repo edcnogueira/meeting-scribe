@@ -1,5 +1,5 @@
 use crate::database::models::{Setting, TranscriptSetting};
-use crate::summary::CustomOpenAIConfig;
+use crate::summary::{CliAgentConfig, CustomOpenAIConfig};
 use sqlx::SqlitePool;
 
 #[derive(serde::Deserialize, Debug)]
@@ -86,6 +86,7 @@ impl SettingsRepository {
             "groq" => "groqApiKey",
             "openrouter" => "openRouterApiKey",
             "builtin-ai" => return Ok(()), // No API key needed
+            "cli-agent" => return Ok(()), // Uses cliAgentConfig JSON, no API key
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -124,6 +125,7 @@ impl SettingsRepository {
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
             "builtin-ai" => return Ok(None), // No API key needed
+            "cli-agent" => return Ok(None), // Uses cliAgentConfig JSON, no API key
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -250,6 +252,7 @@ impl SettingsRepository {
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
             "builtin-ai" => return Ok(()), // No API key needed
+            "cli-agent" => return Ok(()), // Uses cliAgentConfig JSON, no API key
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -339,6 +342,83 @@ impl SettingsRepository {
             "#,
         )
         .bind(&config.model)
+        .bind(config_json)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // ===== CLI AGENT CONFIG METHODS =====
+
+    /// Gets the CLI agent configuration from JSON
+    ///
+    /// # Returns
+    /// * `Ok(Some(CliAgentConfig))` - Config exists and is valid JSON
+    /// * `Ok(None)` - No config stored
+    /// * `Err(sqlx::Error)` - Database error
+    pub async fn get_cli_agent_config(
+        pool: &SqlitePool,
+    ) -> std::result::Result<Option<CliAgentConfig>, sqlx::Error> {
+        use sqlx::Row;
+
+        let row = sqlx::query(
+            r#"
+            SELECT cliAgentConfig
+            FROM settings
+            WHERE id = '1'
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(record) => {
+                let config_json: Option<String> = record.get("cliAgentConfig");
+
+                if let Some(json) = config_json {
+                    let config: CliAgentConfig = serde_json::from_str(&json).map_err(|e| {
+                        sqlx::Error::Protocol(
+                            format!("Invalid JSON in cliAgentConfig: {}", e).into(),
+                        )
+                    })?;
+
+                    Ok(Some(config))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Saves the CLI agent configuration as JSON
+    ///
+    /// # Arguments
+    /// * `pool` - Database connection pool
+    /// * `config` - CliAgentConfig to save (preset, command, args, timeoutSecs)
+    ///
+    /// # Returns
+    /// * `Ok(())` - Config saved successfully
+    /// * `Err(sqlx::Error)` - Database or JSON serialization error
+    pub async fn save_cli_agent_config(
+        pool: &SqlitePool,
+        config: &CliAgentConfig,
+    ) -> std::result::Result<(), sqlx::Error> {
+        let config_json = serde_json::to_string(config).map_err(|e| {
+            sqlx::Error::Protocol(format!("Failed to serialize config to JSON: {}", e).into())
+        })?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO settings (id, provider, model, whisperModel, cliAgentConfig)
+            VALUES ('1', 'cli-agent', $1, 'large-v3', $2)
+            ON CONFLICT(id) DO UPDATE SET
+                cliAgentConfig = excluded.cliAgentConfig
+            "#,
+        )
+        .bind(&config.preset)
         .bind(config_json)
         .execute(pool)
         .await?;

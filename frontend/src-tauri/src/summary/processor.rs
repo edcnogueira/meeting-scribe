@@ -315,6 +315,7 @@ pub fn extract_meeting_name_from_markdown(markdown: &str) -> Option<String> {
 /// * `summary_language` - Optional BCP-47 tag (e.g. "en-GB") to force summary output language
 /// * `detected_transcript_language` - Optional detected transcript language BCP-47 tag
 /// * `cached_english` - Optional previously-generated English summary to skip pass 1 when translating
+/// * `cli_agent_config` - Optional CLI agent config (required for the CliAgent provider)
 ///
 /// # Returns
 /// Tuple of (final_summary_markdown, english_summary_markdown, number_of_chunks_processed)
@@ -340,6 +341,7 @@ pub async fn generate_meeting_summary(
     summary_language: Option<&str>,
     detected_transcript_language: Option<&str>,
     cached_english: Option<&str>,
+    cli_agent_config: Option<&crate::summary::CliAgentConfig>,
 ) -> Result<(String, String, i64), String> {
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -365,7 +367,8 @@ pub async fn generate_meeting_summary(
 
         // Strategy: Use single-pass for cloud providers or short transcripts
         // Use multi-level chunking for Ollama/BuiltInAI with long transcripts
-        // Note: CustomOpenAI is treated like cloud providers (unlimited context)
+        // Note: CustomOpenAI and CliAgent are treated like cloud providers
+        // (unlimited context) and always take the single-pass path.
         if (provider != &LLMProvider::Ollama && provider != &LLMProvider::BuiltInAI) || total_tokens < token_threshold {
             info!(
                 "Using single-pass summarization (tokens: {}, threshold: {})",
@@ -413,6 +416,7 @@ pub async fn generate_meeting_summary(
                     top_p,
                     app_data_dir,
                     cancellation_token,
+                    cli_agent_config,
                 )
                 .await
                 {
@@ -466,6 +470,7 @@ pub async fn generate_meeting_summary(
                     top_p,
                     app_data_dir,
                     cancellation_token,
+                    cli_agent_config,
                 )
                 .await?
             } else {
@@ -514,6 +519,7 @@ pub async fn generate_meeting_summary(
             top_p,
             app_data_dir,
             cancellation_token,
+            cli_agent_config,
         )
         .await?;
 
@@ -539,6 +545,7 @@ pub async fn generate_meeting_summary(
                 top_p,
                 app_data_dir,
                 cancellation_token,
+                cli_agent_config,
             )
             .await
             {
@@ -566,6 +573,7 @@ pub async fn generate_meeting_summary(
                     top_p,
                     app_data_dir,
                     cancellation_token,
+                    cli_agent_config,
                 )
                 .await,
             )?;
@@ -595,6 +603,7 @@ async fn run_markdown_transform(
     top_p: Option<f32>,
     app_data_dir: Option<&PathBuf>,
     cancellation_token: Option<&CancellationToken>,
+    cli_agent_config: Option<&crate::summary::CliAgentConfig>,
 ) -> Result<String, String> {
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -616,6 +625,7 @@ async fn run_markdown_transform(
         top_p,
         app_data_dir,
         cancellation_token,
+        cli_agent_config,
     )
     .await
     .map_err(|e| format!("{failure_label} failed: {e}"))?;
@@ -638,6 +648,7 @@ async fn translate_markdown(
     top_p: Option<f32>,
     app_data_dir: Option<&PathBuf>,
     cancellation_token: Option<&CancellationToken>,
+    cli_agent_config: Option<&crate::summary::CliAgentConfig>,
 ) -> Result<String, String> {
     info!("Translation pass: target language = {}", target_language);
 
@@ -661,6 +672,7 @@ async fn translate_markdown(
         top_p,
         app_data_dir,
         cancellation_token,
+        cli_agent_config,
     )
     .await
 }
@@ -679,6 +691,7 @@ async fn normalize_markdown_to_english(
     top_p: Option<f32>,
     app_data_dir: Option<&PathBuf>,
     cancellation_token: Option<&CancellationToken>,
+    cli_agent_config: Option<&crate::summary::CliAgentConfig>,
 ) -> Result<String, String> {
     info!("English normalization pass: preserving Markdown structure");
 
@@ -701,6 +714,7 @@ async fn normalize_markdown_to_english(
         top_p,
         app_data_dir,
         cancellation_token,
+        cli_agent_config,
     )
     .await
 }

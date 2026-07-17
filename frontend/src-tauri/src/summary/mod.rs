@@ -30,6 +30,28 @@ pub struct CustomOpenAIConfig {
     pub top_p: Option<f32>,
 }
 
+/// CLI agent provider configuration.
+/// Stored as JSON in the database and used to spawn an installed AI CLI
+/// (codex/claude/gemini presets, or a custom command) one-shot to produce
+/// the meeting summary. Mirrors `CustomOpenAIConfig` persistence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CliAgentConfig {
+    /// Preset identifier: "codex", "claude", "gemini", or "custom".
+    pub preset: String,
+    /// Binary to execute. Required for the "custom" preset; ignored for
+    /// named presets (they carry their own command).
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Arguments passed to the binary. Required for the "custom" preset;
+    /// ignored for named presets (they carry their own args).
+    #[serde(default)]
+    pub args: Option<Vec<String>>,
+    /// Timeout in seconds for the one-shot invocation (defaults to 600).
+    #[serde(default, rename = "timeoutSecs")]
+    pub timeout_secs: Option<u64>,
+}
+
+pub mod cli_agent;
 pub mod commands;
 pub(crate) mod language_detection;
 pub mod llm_client;

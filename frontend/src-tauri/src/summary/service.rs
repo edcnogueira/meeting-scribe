@@ -320,8 +320,12 @@ impl SummaryService {
             }
         };
 
-        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, and CustomOpenAI
-        let api_key = if provider == LLMProvider::Ollama || provider == LLMProvider::BuiltInAI || provider == LLMProvider::CustomOpenAI {
+        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, CustomOpenAI, and CliAgent
+        let api_key = if provider == LLMProvider::Ollama
+            || provider == LLMProvider::BuiltInAI
+            || provider == LLMProvider::CustomOpenAI
+            || provider == LLMProvider::CliAgent
+        {
             // These providers don't require API keys from the standard database column
             String::new()
         } else {
@@ -388,6 +392,28 @@ impl SummaryService {
             custom_openai_api_key.unwrap_or_default()
         } else {
             api_key
+        };
+
+        // Resolve CliAgent config if provider is CliAgent (mirror of CustomOpenAI)
+        let cli_agent_config = if provider == LLMProvider::CliAgent {
+            match SettingsRepository::get_cli_agent_config(&pool).await {
+                Ok(Some(config)) => {
+                    info!("✓ Using CLI agent provider (preset: {})", config.preset);
+                    Some(config)
+                }
+                Ok(None) => {
+                    let err_msg = "CLI agent provider selected but no configuration found";
+                    Self::update_process_failed(&pool, &meeting_id, err_msg).await;
+                    return;
+                }
+                Err(e) => {
+                    let err_msg = format!("Failed to retrieve CLI agent config: {}", e);
+                    Self::update_process_failed(&pool, &meeting_id, &err_msg).await;
+                    return;
+                }
+            }
+        } else {
+            None
         };
 
         // Dynamically fetch context size based on provider and model
@@ -525,6 +551,7 @@ impl SummaryService {
             summary_language.as_deref(),
             detected_summary_language.as_deref(),
             cached_english.as_deref(),
+            cli_agent_config.as_ref(),
         )
         .await;
 
