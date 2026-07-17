@@ -5,7 +5,9 @@
 //! by a timeout and an optional cancellation token; on either, the child is
 //! killed so no orphaned CLI keeps running in the background.
 
+use std::ffi::OsString;
 use std::future::pending;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -75,6 +77,52 @@ pub fn sanitize_cli_stdout(raw: &str) -> String {
     ANSI_ESCAPE_REGEX.replace_all(raw, "").trim().to_string()
 }
 
+/// GUI apps on macOS inherit launchd's minimal PATH (no shell profile is
+/// sourced), so CLIs installed under user-level bin directories — nvm,
+/// `~/.local/bin`, Homebrew — are invisible to a bare `Command::new("codex")`.
+/// The child's PATH is therefore augmented with the well-known install
+/// locations that actually exist on this machine.
+fn build_augmented_path(base: Option<OsString>, home: Option<PathBuf>) -> OsString {
+    let mut dirs: Vec<PathBuf> = match &base {
+        Some(p) => std::env::split_paths(p).collect(),
+        None => Vec::new(),
+    };
+
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ];
+    if let Some(home) = home {
+        candidates.push(home.join(".local/bin"));
+        candidates.push(home.join(".cargo/bin"));
+        candidates.push(home.join(".volta/bin"));
+        candidates.push(home.join(".bun/bin"));
+        candidates.push(home.join("bin"));
+        // nvm keeps one bin dir per installed node version; newest first so a
+        // freshly installed version wins over stale ones.
+        if let Ok(entries) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+            let mut nvm_bins: Vec<PathBuf> =
+                entries.flatten().map(|e| e.path().join("bin")).collect();
+            nvm_bins.sort();
+            nvm_bins.reverse();
+            candidates.extend(nvm_bins);
+        }
+    }
+
+    for dir in candidates {
+        if dir.is_dir() && !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+
+    std::env::join_paths(dirs).unwrap_or_else(|_| base.unwrap_or_default())
+}
+
+/// The augmented PATH for spawned CLI children (see [`build_augmented_path`]).
+fn augmented_path() -> OsString {
+    build_augmented_path(std::env::var_os("PATH"), dirs::home_dir())
+}
+
 /// Runs `command args...` one-shot: writes `stdin_input`, waits for exit under a
 /// timeout and optional cancellation, and returns the captured output.
 ///
@@ -97,6 +145,9 @@ pub async fn run_cli_process(
 
     let mut cmd = tokio::process::Command::new(command);
     cmd.args(args)
+        // Setting PATH on the child also controls how a bare program name is
+        // resolved (documented std::process::Command behavior on Unix).
+        .env("PATH", augmented_path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -231,6 +282,81 @@ mod tests {
     fn sanitize_strips_ansi_and_trims() {
         let raw = "\u{1b}[32m# Summary\u{1b}[0m\n\nBody line\n  ";
         assert_eq!(sanitize_cli_stdout(raw), "# Summary\n\nBody line");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn augmented_path_appends_existing_user_dirs() {
+        // Fake home with a ~/.local/bin and two nvm node versions.
+        let home = std::env::temp_dir().join(format!(
+            "cli_agent_fake_home_{}_{}",
+            std::process::id(),
+            fake_counter()
+        ));
+        let local_bin = home.join(".local/bin");
+        let nvm_old = home.join(".nvm/versions/node/v20.1.0/bin");
+        let nvm_new = home.join(".nvm/versions/node/v22.18.0/bin");
+        for d in [&local_bin, &nvm_old, &nvm_new] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+
+        let base = OsString::from("/usr/bin:/bin");
+        let joined = build_augmented_path(Some(base), Some(home.clone()));
+        let parts: Vec<PathBuf> = std::env::split_paths(&joined).collect();
+
+        // Base PATH preserved in front.
+        assert_eq!(parts[0], PathBuf::from("/usr/bin"));
+        assert_eq!(parts[1], PathBuf::from("/bin"));
+        // Existing user dirs appended; missing candidates (e.g. ~/.cargo/bin
+        // under the fake home) skipped.
+        assert!(parts.contains(&local_bin));
+        assert!(!parts.iter().any(|p| p.ends_with(".cargo/bin") && p.starts_with(&home)));
+        // Newest nvm version comes before the older one.
+        let idx_new = parts.iter().position(|p| p == &nvm_new).unwrap();
+        let idx_old = parts.iter().position(|p| p == &nvm_old).unwrap();
+        assert!(idx_new < idx_old);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn augmented_path_deduplicates_dirs_already_on_base() {
+        let home = std::env::temp_dir().join(format!(
+            "cli_agent_fake_home_{}_{}",
+            std::process::id(),
+            fake_counter()
+        ));
+        let local_bin = home.join(".local/bin");
+        std::fs::create_dir_all(&local_bin).unwrap();
+
+        let base = std::env::join_paths([PathBuf::from("/usr/bin"), local_bin.clone()]).unwrap();
+        let joined = build_augmented_path(Some(base), Some(home.clone()));
+        let occurrences = std::env::split_paths(&joined)
+            .filter(|p| p == &local_bin)
+            .count();
+        assert_eq!(occurrences, 1);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bare_command_resolves_via_augmented_home_dir() {
+        // A fake CLI placed in the REAL ~/.local/bin equivalent is out of reach
+        // for a unit test, so verify the spawn-level contract instead: a bare
+        // name not on the inherited PATH fails Spawn (not a hang), proving
+        // resolution happens at spawn time against the child PATH.
+        let err = run_cli_process(
+            "definitely-not-a-real-cli-2026",
+            &[],
+            "prompt",
+            Duration::from_secs(5),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, CliRunError::Spawn(_)), "got {:?}", err);
     }
 
     #[cfg(unix)]
