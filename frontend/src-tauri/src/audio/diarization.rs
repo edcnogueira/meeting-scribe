@@ -12,6 +12,9 @@
 //!   - Fallback (mono only): diarize the whole mixed `audio.mp4`.
 
 use crate::audio::decoder::decode_audio_file;
+use crate::audio::diarization_identity::{
+    self, resolve_clusters, ClusterResolution, IdentityCandidate, IDENTIFICATION_THRESHOLD,
+};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::database::repositories::speakers::SpeakersRepository;
 use crate::diarization_engine::SpeakerTurn;
@@ -314,6 +317,51 @@ async fn load_transcript_bounds<R: Runtime>(
         .collect())
 }
 
+/// Load enrolled identities as matching candidates (task D4). When diarizing
+/// separate tracks the mic already owns the local speaker, so the self profile
+/// is excluded from system-cluster matching; in mono fallback it participates.
+/// Identities without a stored embedding are skipped.
+async fn load_identity_candidates<R: Runtime>(
+    app: &AppHandle<R>,
+    include_self: bool,
+) -> Result<Vec<IdentityCandidate>> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| anyhow!("App state not available"))?;
+    let identities = SpeakersRepository::list_speaker_identities(state.db_manager.pool())
+        .await
+        .map_err(|e| anyhow!("Failed to load identities: {}", e))?;
+    Ok(identities
+        .iter()
+        .filter(|i| include_self || !i.is_self)
+        .filter(|i| !i.embedding.is_empty())
+        .map(IdentityCandidate::from)
+        .collect())
+}
+
+/// Fold the mic track's mean embedding into the owner's ("Eu") profile via
+/// incremental averaging (task D4). Best-effort: matching still works without it.
+async fn feed_self_profile<R: Runtime>(app: &AppHandle<R>, centroid: &[f32]) {
+    if centroid.is_empty() {
+        return;
+    }
+    let state = match app.try_state::<AppState>() {
+        Some(s) => s,
+        None => return,
+    };
+    if let Err(e) = diarization_identity::enroll_embedding_by_name(
+        state.db_manager.pool(),
+        &diarization_identity::self_name(),
+        centroid,
+        true,
+    )
+    .await
+    {
+        // Never log the embedding itself — only the failure reason.
+        warn!("Failed to update self voice profile: {}", e);
+    }
+}
+
 /// Persist speaker labels on transcripts and cluster rows on `meeting_speakers`.
 async fn persist_results<R: Runtime>(
     app: &AppHandle<R>,
@@ -321,6 +369,7 @@ async fn persist_results<R: Runtime>(
     assignments: &[(String, Option<String>)],
     system_turns: &[SpeakerTurn],
     has_mic: bool,
+    resolutions: &BTreeMap<String, ClusterResolution>,
 ) -> Result<usize> {
     let state = app
         .try_state::<AppState>()
@@ -363,13 +412,19 @@ async fn persist_results<R: Runtime>(
 
     let centroids = cluster_centroids(system_turns);
     for (cluster_id, embedding) in centroids {
+        let label = cluster_label(cluster_id);
+        // Attach the resolved identity + match score (task D4), when matched.
+        let (speaker_id, score) = resolutions
+            .get(&label)
+            .map(|r| (r.speaker_id.clone(), r.score.map(|s| s as f64)))
+            .unwrap_or((None, None));
         SpeakersRepository::insert_meeting_speaker(
             pool,
             meeting_id,
-            &cluster_label(cluster_id),
+            &label,
             &embedding,
-            None,
-            None,
+            speaker_id.as_deref(),
+            score,
         )
         .await
         .map_err(|e| anyhow!("Failed to store cluster speaker: {}", e))?;
@@ -402,41 +457,56 @@ async fn run_diarization<R: Runtime>(
         return Err(anyhow!("Diarization cancelled"));
     }
 
-    let (mic_turns, system_turns): (Vec<LabeledTurn>, Vec<SpeakerTurn>) = if has_tracks {
-        info!("Diarizing with separate tracks for meeting {}", meeting_id);
+    let (mic_turns, system_turns, mic_centroid): (Vec<LabeledTurn>, Vec<SpeakerTurn>, Option<Vec<f32>>) =
+        if has_tracks {
+            info!("Diarizing with separate tracks for meeting {}", meeting_id);
 
-        // Mic track: VAD only -> "Eu".
-        let mic_samples = decode_16k_mono(mic_path).await?;
-        emit_progress(&app, &meeting_id, "segmenting", 20, "Detecting local speech...");
-        let mic_turns = mic_vad_turns(mic_samples).await?;
+            // Mic track: VAD -> "Eu" timeline, plus a single-cluster embedding
+            // pass to feed the owner's voice profile (task D4).
+            let mic_samples = decode_16k_mono(mic_path).await?;
+            emit_progress(&app, &meeting_id, "segmenting", 20, "Detecting local speech...");
+            let mic_turns = mic_vad_turns(mic_samples.clone()).await?;
 
-        if DIARIZATION_CANCELLED.load(Ordering::SeqCst) {
-            return Err(anyhow!("Diarization cancelled"));
-        }
+            if DIARIZATION_CANCELLED.load(Ordering::SeqCst) {
+                return Err(anyhow!("Diarization cancelled"));
+            }
 
-        // System track: full diarization -> "Speaker N".
-        let system_samples = decode_16k_mono(system_path).await?;
-        emit_progress(&app, &meeting_id, "embedding", 45, "Analyzing remote speakers...");
-        let system_turns = engine
-            .diarize(&system_samples, num_remote_speakers)
-            .await
-            .map_err(|e| anyhow!("System-track diarization failed: {}", e))?;
+            // Force one cluster on the mic track to get its mean embedding.
+            let mic_centroid = match engine.diarize(&mic_samples, Some(1)).await {
+                Ok(turns) if !turns.is_empty() => {
+                    cluster_centroids(&turns).into_values().next()
+                }
+                _ => None,
+            };
 
-        (mic_turns, system_turns)
-    } else {
-        info!("Diarizing mixed audio (fallback) for meeting {}", meeting_id);
-        let audio_path = find_mixed_audio(&folder)?;
-        let samples = decode_16k_mono(audio_path).await?;
-        emit_progress(&app, &meeting_id, "segmenting", 30, "Analyzing speakers...");
-        let turns = engine
-            .diarize(&samples, num_remote_speakers)
-            .await
-            .map_err(|e| anyhow!("Diarization failed: {}", e))?;
-        (Vec::new(), turns)
-    };
+            // System track: full diarization -> "Speaker N".
+            let system_samples = decode_16k_mono(system_path).await?;
+            emit_progress(&app, &meeting_id, "embedding", 45, "Analyzing remote speakers...");
+            let system_turns = engine
+                .diarize(&system_samples, num_remote_speakers)
+                .await
+                .map_err(|e| anyhow!("System-track diarization failed: {}", e))?;
+
+            (mic_turns, system_turns, mic_centroid)
+        } else {
+            info!("Diarizing mixed audio (fallback) for meeting {}", meeting_id);
+            let audio_path = find_mixed_audio(&folder)?;
+            let samples = decode_16k_mono(audio_path).await?;
+            emit_progress(&app, &meeting_id, "segmenting", 30, "Analyzing speakers...");
+            let turns = engine
+                .diarize(&samples, num_remote_speakers)
+                .await
+                .map_err(|e| anyhow!("Diarization failed: {}", e))?;
+            (Vec::new(), turns, None)
+        };
 
     if DIARIZATION_CANCELLED.load(Ordering::SeqCst) {
         return Err(anyhow!("Diarization cancelled"));
+    }
+
+    // Feed the owner's voice profile from the mic track (separate-tracks mode).
+    if let Some(centroid) = &mic_centroid {
+        feed_self_profile(&app, centroid).await;
     }
 
     emit_progress(&app, &meeting_id, "clustering", 75, "Merging speaker timeline...");
@@ -451,9 +521,35 @@ async fn run_diarization<R: Runtime>(
         .len();
     let speaker_count = system_cluster_count + usize::from(!mic_turns.is_empty());
 
-    // Attribute speakers to transcript segments by overlap.
+    // Match each system cluster against the local registry (task D4). In mono
+    // fallback the self profile participates; with separate tracks it does not
+    // (the mic already owns the local speaker).
+    let centroids: BTreeMap<String, Vec<f32>> = cluster_centroids(&system_turns)
+        .into_iter()
+        .map(|(cid, emb)| (cluster_label(cid), emb))
+        .collect();
+    let candidates = load_identity_candidates(&app, !has_tracks).await?;
+    let resolutions: BTreeMap<String, ClusterResolution> =
+        resolve_clusters(&centroids, &candidates, IDENTIFICATION_THRESHOLD)
+            .into_iter()
+            .map(|r| (r.cluster_label.clone(), r))
+            .collect();
+
+    // Attribute speakers to transcript segments by overlap, then map cluster
+    // labels through the registry so matched clusters carry the person's name.
     let bounds = load_transcript_bounds(&app, &meeting_id).await?;
-    let assignments = assign_speakers(&bounds, &timeline);
+    let assignments: Vec<(String, Option<String>)> = assign_speakers(&bounds, &timeline)
+        .into_iter()
+        .map(|(id, label)| {
+            let mapped = label.map(|l| {
+                resolutions
+                    .get(&l)
+                    .map(|r| r.display_label.clone())
+                    .unwrap_or(l)
+            });
+            (id, mapped)
+        })
+        .collect();
 
     emit_progress(&app, &meeting_id, "saving", 90, "Saving speaker labels...");
     let labeled = persist_results(
@@ -462,6 +558,7 @@ async fn run_diarization<R: Runtime>(
         &assignments,
         &system_turns,
         !mic_turns.is_empty(),
+        &resolutions,
     )
     .await?;
 
