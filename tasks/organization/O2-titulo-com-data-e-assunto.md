@@ -10,13 +10,13 @@ O template de resumo **já pede um título ao LLM**: o esqueleto markdown começ
 
 ## Escopo
 
-- [ ] **Prompt**: reforçar a instrução do título no prompt de geração (`summary/processor.rs:154`): o H1 deve ser um título curto e específico do assunto tratado (decisão/tema central), no idioma do transcript — nunca genérico tipo "Meeting Summary" ou o nome do template. Vale para todos os provedores (cli-agent incluso, nada específico dele).
-- [ ] **Extração pós-geração** (backend, no fluxo que persiste o resumo): parsear o primeiro `# H1` do markdown final (após `clean_llm_markdown_output`); fallback se ausente/vazio: manter título atual.
-- [ ] **Montagem**: `YYYY-MM-DD - <título>` usando a **data de criação da reunião** (`meetings.created_at`), não a data de geração do resumo; truncar título a ~80 chars.
-- [ ] **Guarda de edição manual**: só renomear se o título atual ainda casa com o padrão auto-gerado (`Meeting \d{2}_\d{2}_\d{2}.*` e variantes do `generateMeetingTitle`) **ou** já está no formato `YYYY-MM-DD - ...` (re-geração de resumo pode atualizar o assunto). Título editado à mão pelo usuário nunca é sobrescrito.
-- [ ] **Persistência + UI**: atualizar `meetings.title` pelo repositório existente e emitir o evento que a sidebar já usa para refletir rename (verificar o fluxo atual de rename manual e reusar).
-- [ ] **Fora de escopo (v1)**: renomear a pasta da reunião no disco (o vínculo é `folder_path`; título do DB é livre — evita conflito com O1); passo de LLM dedicado só para título; toggle em settings.
-- [ ] Testes unitários: extração do H1 (com ruído, sem H1, H1 genérico), montagem com data correta, guarda de título manual.
+- [x] **Prompt**: reforçar a instrução do título no prompt de geração (`summary/processor.rs:154`): o H1 deve ser um título curto e específico do assunto tratado (decisão/tema central), no idioma do transcript — nunca genérico tipo "Meeting Summary" ou o nome do template. Vale para todos os provedores (cli-agent incluso, nada específico dele).
+- [x] **Extração pós-geração** (backend, no fluxo que persiste o resumo): parsear o primeiro `# H1` do markdown final (após `clean_llm_markdown_output`); fallback se ausente/vazio: manter título atual.
+- [x] **Montagem**: `YYYY-MM-DD - <título>` usando a **data de criação da reunião** (`meetings.created_at`), não a data de geração do resumo; truncar título a ~80 chars.
+- [x] **Guarda de edição manual**: só renomear se o título atual ainda casa com o padrão auto-gerado (`Meeting \d{2}_\d{2}_\d{2}.*` e variantes do `generateMeetingTitle`) **ou** já está no formato `YYYY-MM-DD - ...` (re-geração de resumo pode atualizar o assunto). Título editado à mão pelo usuário nunca é sobrescrito.
+- [x] **Persistência + UI**: atualizar `meetings.title` pelo repositório existente e emitir o evento que a sidebar já usa para refletir rename (verificar o fluxo atual de rename manual e reusar).
+- [x] **Fora de escopo (v1)**: renomear a pasta da reunião no disco (o vínculo é `folder_path`; título do DB é livre — evita conflito com O1); passo de LLM dedicado só para título; toggle em settings.
+- [x] Testes unitários: extração do H1 (com ruído, sem H1, H1 genérico), montagem com data correta, guarda de título manual.
 
 ## Critérios de aceite
 
