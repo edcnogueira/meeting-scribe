@@ -1,0 +1,5 @@
+# Artefatos de execução do spike (regeneráveis) — não versionar.
+prompt_*.txt
+*_stdout.txt
+*_stderr.txt
+codex_last.md

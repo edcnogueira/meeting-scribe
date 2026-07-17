@@ -1,0 +1,106 @@
+[00:00] João: Bom dia pessoal, vamos começar a retro da sprint 14. Quero focar em três coisas: o que travou, os action items abertos e o planejamento do release.
+[00:17] Maria: Bom dia. Do meu lado, a integração com o gateway de pagamento ficou pronta, mas ainda falta cobrir os testes de timeout que o João pediu.
+[00:34] Speaker 2: Eu fiquei responsável pela parte de observabilidade. Consegui subir os dashboards no Grafana, mas os alertas de latência ainda estão com muito falso positivo.
+[00:51] João: Certo. Maria, consegue fechar os testes de timeout até quinta? A gente precisa disso antes do freeze.
+[01:08] Maria: Consigo sim, quinta de manhã eu subo o PR. Só vou precisar de review rápido porque toca no fluxo de checkout.
+[01:25] Speaker 3: Sobre o checkout, eu notei ontem que a tela de confirmação está lenta em conexões ruins. Vale abrir um card separado pra isso.
+[01:42] João: Boa observação. Speaker 3, abre o card e coloca como prioridade média por enquanto. A gente reavalia na próxima.
+[01:59] Speaker 2: Voltando aos alertas: eu proponho aumentar a janela de agregação de 1 pra 5 minutos. Isso deve matar a maioria dos falsos positivos sem perder incidente real.
+[02:16] Maria: Concordo, 5 minutos me parece razoável. A gente teve um incidente real mês passado e ele durou uns 12 minutos, então 5 ainda pega.
+[02:33] João: Fechado, muda pra 5 minutos. Speaker 2, você toca essa mudança ainda hoje?
+[02:50] Speaker 2: Toco sim, é só ajustar a config do Prometheus e reiniciar o alertmanager. Deixo pronto até o fim do dia.
+[03:07] Speaker 3: Uma dúvida: a gente vai manter o deploy manual ou já migra pro pipeline automático nessa release?
+[03:24] João: Boa pergunta. Eu quero migrar, mas com portão de aprovação manual antes de produção. Ninguém vai em prod sem um humano apertar o botão.
+[03:41] Maria: Isso me deixa mais tranquila. O pipeline automático já roda os testes de integração, né? Se rodar, eu confio.
+[03:58] Speaker 2: Roda sim, adicionei a suíte de integração no estágio de CI semana passada. Cobre os caminhos críticos de pagamento e login.
+[04:15] João: Perfeito. Então o combinado é: pipeline automático até staging, aprovação manual pra produção.
+[04:32] Speaker 3: E sobre rollback? Se der problema em prod, qual o plano?
+[04:49] João: Rollback é redeploy da tag anterior. A gente mantém as últimas três tags sempre prontas. Speaker 2 documenta isso no runbook.
+[05:06] Speaker 2: Anotado, coloco no runbook hoje junto com a mudança dos alertas.
+[05:23] Maria: Só lembrando que na sprint passada a gente ficou sem documentar o processo de migração de banco e deu confusão. Vamos evitar repetir.
+[05:40] João: Verdade. Maria, você assume a doc da migração de banco dessa vez? Curtinho, só os passos e o comando de rollback.
+[05:57] Maria: Assumo. Faço junto com o PR dos testes de timeout, aproveito o embalo.
+[06:14] Speaker 3: Do lado de UX, a gente recebeu feedback de que os usuários não entendem a mensagem de erro quando o cartão é recusado. Tá muito técnica.
+[06:31] João: Concordo, aquela mensagem é péssima. Speaker 3, você consegue propor um texto novo e alinhar com a Maria pra não quebrar a lógica de erro?
+[06:48] Speaker 3: Consigo. Escrevo três variações e trago na próxima pra gente escolher.
+[07:05] Maria: Só me manda antes pra eu ver se os códigos de erro batem com o que o gateway retorna. Alguns erros a gente não pode expor por segurança.
+[07:22] Speaker 2: Aproveitando segurança: o scan de dependências acusou uma lib com CVE alto. É a lib de parsing de XML. Precisa atualizar.
+[07:39] João: Isso é bloqueante pro release. Speaker 2, sobe o bump da lib hoje ainda e roda a suíte completa. Se passar, entra no freeze.
+[07:56] Speaker 2: Beleza, priorizo isso antes do runbook então. Segurança primeiro.
+[08:13] João: Isso. Alguém tem mais alguma coisa antes da gente decidir o nome e a data do release?
+[08:30] Maria: Do meu lado é só isso. Testes de timeout, doc de migração, e review do texto de erro.
+[08:47] Speaker 3: Fechado pra mim também. Card de performance do checkout e as variações de mensagem.
+[09:04] Speaker 2: Eu tô com bump da lib, mudança de alertas e runbook. Dá pra fazer tudo hoje e amanhã.
+[09:21] João: Bom dia pessoal, vamos começar a retro da sprint 14. Quero focar em três coisas: o que travou, os action items abertos e o planejamento do release.
+[09:38] Maria: Bom dia. Do meu lado, a integração com o gateway de pagamento ficou pronta, mas ainda falta cobrir os testes de timeout que o João pediu.
+[09:55] Speaker 2: Eu fiquei responsável pela parte de observabilidade. Consegui subir os dashboards no Grafana, mas os alertas de latência ainda estão com muito falso positivo.
+[10:12] João: Certo. Maria, consegue fechar os testes de timeout até quinta? A gente precisa disso antes do freeze.
+[10:29] Maria: Consigo sim, quinta de manhã eu subo o PR. Só vou precisar de review rápido porque toca no fluxo de checkout.
+[10:46] Speaker 3: Sobre o checkout, eu notei ontem que a tela de confirmação está lenta em conexões ruins. Vale abrir um card separado pra isso.
+[11:03] João: Boa observação. Speaker 3, abre o card e coloca como prioridade média por enquanto. A gente reavalia na próxima.
+[11:20] Speaker 2: Voltando aos alertas: eu proponho aumentar a janela de agregação de 1 pra 5 minutos. Isso deve matar a maioria dos falsos positivos sem perder incidente real.
+[11:37] Maria: Concordo, 5 minutos me parece razoável. A gente teve um incidente real mês passado e ele durou uns 12 minutos, então 5 ainda pega.
+[11:54] João: Fechado, muda pra 5 minutos. Speaker 2, você toca essa mudança ainda hoje?
+[12:11] Speaker 2: Toco sim, é só ajustar a config do Prometheus e reiniciar o alertmanager. Deixo pronto até o fim do dia.
+[12:28] Speaker 3: Uma dúvida: a gente vai manter o deploy manual ou já migra pro pipeline automático nessa release?
+[12:45] João: Boa pergunta. Eu quero migrar, mas com portão de aprovação manual antes de produção. Ninguém vai em prod sem um humano apertar o botão.
+[13:02] Maria: Isso me deixa mais tranquila. O pipeline automático já roda os testes de integração, né? Se rodar, eu confio.
+[13:19] Speaker 2: Roda sim, adicionei a suíte de integração no estágio de CI semana passada. Cobre os caminhos críticos de pagamento e login.
+[13:36] João: Perfeito. Então o combinado é: pipeline automático até staging, aprovação manual pra produção.
+[13:53] Speaker 3: E sobre rollback? Se der problema em prod, qual o plano?
+[14:10] João: Rollback é redeploy da tag anterior. A gente mantém as últimas três tags sempre prontas. Speaker 2 documenta isso no runbook.
+[14:27] Speaker 2: Anotado, coloco no runbook hoje junto com a mudança dos alertas.
+[14:44] Maria: Só lembrando que na sprint passada a gente ficou sem documentar o processo de migração de banco e deu confusão. Vamos evitar repetir.
+[15:01] João: Verdade. Maria, você assume a doc da migração de banco dessa vez? Curtinho, só os passos e o comando de rollback.
+[15:18] Maria: Assumo. Faço junto com o PR dos testes de timeout, aproveito o embalo.
+[15:35] Speaker 3: Do lado de UX, a gente recebeu feedback de que os usuários não entendem a mensagem de erro quando o cartão é recusado. Tá muito técnica.
+[15:52] João: Concordo, aquela mensagem é péssima. Speaker 3, você consegue propor um texto novo e alinhar com a Maria pra não quebrar a lógica de erro?
+[16:09] Speaker 3: Consigo. Escrevo três variações e trago na próxima pra gente escolher.
+[16:26] Maria: Só me manda antes pra eu ver se os códigos de erro batem com o que o gateway retorna. Alguns erros a gente não pode expor por segurança.
+[16:43] Speaker 2: Aproveitando segurança: o scan de dependências acusou uma lib com CVE alto. É a lib de parsing de XML. Precisa atualizar.
+[17:00] João: Isso é bloqueante pro release. Speaker 2, sobe o bump da lib hoje ainda e roda a suíte completa. Se passar, entra no freeze.
+[17:17] Speaker 2: Beleza, priorizo isso antes do runbook então. Segurança primeiro.
+[17:34] João: Isso. Alguém tem mais alguma coisa antes da gente decidir o nome e a data do release?
+[17:51] Maria: Do meu lado é só isso. Testes de timeout, doc de migração, e review do texto de erro.
+[18:08] Speaker 3: Fechado pra mim também. Card de performance do checkout e as variações de mensagem.
+[18:25] Speaker 2: Eu tô com bump da lib, mudança de alertas e runbook. Dá pra fazer tudo hoje e amanhã.
+[18:42] João: Bom dia pessoal, vamos começar a retro da sprint 14. Quero focar em três coisas: o que travou, os action items abertos e o planejamento do release.
+[18:59] Maria: Bom dia. Do meu lado, a integração com o gateway de pagamento ficou pronta, mas ainda falta cobrir os testes de timeout que o João pediu.
+[19:16] Speaker 2: Eu fiquei responsável pela parte de observabilidade. Consegui subir os dashboards no Grafana, mas os alertas de latência ainda estão com muito falso positivo.
+[19:33] João: Certo. Maria, consegue fechar os testes de timeout até quinta? A gente precisa disso antes do freeze.
+[19:50] Maria: Consigo sim, quinta de manhã eu subo o PR. Só vou precisar de review rápido porque toca no fluxo de checkout.
+[20:07] Speaker 3: Sobre o checkout, eu notei ontem que a tela de confirmação está lenta em conexões ruins. Vale abrir um card separado pra isso.
+[20:24] João: Boa observação. Speaker 3, abre o card e coloca como prioridade média por enquanto. A gente reavalia na próxima.
+[20:41] Speaker 2: Voltando aos alertas: eu proponho aumentar a janela de agregação de 1 pra 5 minutos. Isso deve matar a maioria dos falsos positivos sem perder incidente real.
+[20:58] Maria: Concordo, 5 minutos me parece razoável. A gente teve um incidente real mês passado e ele durou uns 12 minutos, então 5 ainda pega.
+[21:15] João: Fechado, muda pra 5 minutos. Speaker 2, você toca essa mudança ainda hoje?
+[21:32] Speaker 2: Toco sim, é só ajustar a config do Prometheus e reiniciar o alertmanager. Deixo pronto até o fim do dia.
+[21:49] Speaker 3: Uma dúvida: a gente vai manter o deploy manual ou já migra pro pipeline automático nessa release?
+[22:06] João: Boa pergunta. Eu quero migrar, mas com portão de aprovação manual antes de produção. Ninguém vai em prod sem um humano apertar o botão.
+[22:23] Maria: Isso me deixa mais tranquila. O pipeline automático já roda os testes de integração, né? Se rodar, eu confio.
+[22:40] Speaker 2: Roda sim, adicionei a suíte de integração no estágio de CI semana passada. Cobre os caminhos críticos de pagamento e login.
+[22:57] João: Perfeito. Então o combinado é: pipeline automático até staging, aprovação manual pra produção.
+[23:14] Speaker 3: E sobre rollback? Se der problema em prod, qual o plano?
+[23:31] João: Rollback é redeploy da tag anterior. A gente mantém as últimas três tags sempre prontas. Speaker 2 documenta isso no runbook.
+[23:48] Speaker 2: Anotado, coloco no runbook hoje junto com a mudança dos alertas.
+[24:05] Maria: Só lembrando que na sprint passada a gente ficou sem documentar o processo de migração de banco e deu confusão. Vamos evitar repetir.
+[24:22] João: Verdade. Maria, você assume a doc da migração de banco dessa vez? Curtinho, só os passos e o comando de rollback.
+[24:39] Maria: Assumo. Faço junto com o PR dos testes de timeout, aproveito o embalo.
+[24:56] Speaker 3: Do lado de UX, a gente recebeu feedback de que os usuários não entendem a mensagem de erro quando o cartão é recusado. Tá muito técnica.
+[25:13] João: Concordo, aquela mensagem é péssima. Speaker 3, você consegue propor um texto novo e alinhar com a Maria pra não quebrar a lógica de erro?
+[25:30] Speaker 3: Consigo. Escrevo três variações e trago na próxima pra gente escolher.
+[25:47] Maria: Só me manda antes pra eu ver se os códigos de erro batem com o que o gateway retorna. Alguns erros a gente não pode expor por segurança.
+[26:04] Speaker 2: Aproveitando segurança: o scan de dependências acusou uma lib com CVE alto. É a lib de parsing de XML. Precisa atualizar.
+[26:21] João: Isso é bloqueante pro release. Speaker 2, sobe o bump da lib hoje ainda e roda a suíte completa. Se passar, entra no freeze.
+[26:38] Speaker 2: Beleza, priorizo isso antes do runbook então. Segurança primeiro.
+[26:55] João: Isso. Alguém tem mais alguma coisa antes da gente decidir o nome e a data do release?
+[27:12] Maria: Do meu lado é só isso. Testes de timeout, doc de migração, e review do texto de erro.
+[27:29] Speaker 3: Fechado pra mim também. Card de performance do checkout e as variações de mensagem.
+[27:46] Speaker 2: Eu tô com bump da lib, mudança de alertas e runbook. Dá pra fazer tudo hoje e amanhã.
+[28:03] João: Então vamos formalizar as decisões finais dessa reunião pra ninguém esquecer.
+[28:18] João: DECISAO FINAL 1: o codinome oficial desse release passa a ser 'Jabuticaba-9'. Anotem em todo lugar, PR, tag e changelog.
+[28:33] João: DECISAO FINAL 2: a data de deploy em producao fica travada para o dia 30 de setembro, as 22h, com portao de aprovacao manual.
+[28:48] João: DECISAO FINAL 3: o responsavel por apertar o botao de deploy em producao sera a Maria, com o Speaker 2 de plantao para rollback.
+[29:03] Maria: Anotado. Jabuticaba-9, dia 30 de setembro as 22h, eu no deploy e o Speaker 2 no plantao de rollback.
+[29:18] Speaker 2: Confirmado, fico de plantao. Runbook de rollback vai estar pronto muito antes disso.
+[29:33] João: Perfeito. Reuniao encerrada, obrigado pessoal.
