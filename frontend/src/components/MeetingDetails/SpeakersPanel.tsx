@@ -194,6 +194,16 @@ export function SpeakersPanel({ meetingId, onRefetchTranscripts }: SpeakersPanel
               This meeting has not been diarized yet. Run diarization to detect speakers.
             </p>
           ) : (
+            <>
+              {speakers.length > 15 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                  {speakers.length} speakers detected — clustering likely degenerated on this
+                  audio. Set &ldquo;Remote participants&rdquo; below and re-diarize.
+                </p>
+              )}
+              {/* Hard height cap: a degenerate run (e.g. 190 clusters) must never
+                  push the diarization controls or the transcript off-screen. */}
+              <div className="max-h-56 overflow-y-auto pr-1">
             <ul className="space-y-1.5">
               {speakers.map((s) => (
                 <li key={s.cluster_label} className="flex items-center gap-2">
@@ -250,6 +260,8 @@ export function SpeakersPanel({ meetingId, onRefetchTranscripts }: SpeakersPanel
                 </li>
               ))}
             </ul>
+              </div>
+            </>
           )}
 
           {/* Autocomplete source: names already in the registry. */}
