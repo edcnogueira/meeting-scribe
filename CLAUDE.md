@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Personal fork context (read first)
+
+This repository is **Meeting Scribe** (`edcnogueira/meeting-scribe`) — a personal derivative of Meetily (Zackriya-Solutions/meeting-minutes, MIT), detached from upstream on 2026-07-16 (fork point: tag `upstream-v0.4.0`). Rules that override anything below:
+
+- **No upstream contribution**: never open PRs/issues against Zackriya-Solutions. `upstream` remote exists only for cherry-picking fixes.
+- **`main` is the personal mainline** — work on `fix/*` / `enhance/*` branches and merge here. There is no `devtest`.
+- **Auto-updater is disabled** (config removed from `tauri.conf.json` + short-circuit in `frontend/src/services/updateService.ts`). Never re-enable it pointing at upstream releases.
+- **Build prerequisite**: `binaries/llama-helper-<target-triple>` must exist before any `cargo check`/build of `frontend/src-tauri` (`cargo build --release -p llama-helper` + copy). Never commit binaries.
+- **App identity intentionally unchanged** (`meetily.app`, `com.meetily.ai`) to preserve user data compatibility; renaming it requires a deliberate data-migration task.
+- **Fork-specific features**: separate audio tracks (`audio/track_saver.rs`), local speaker diarization (`diarization_engine/`, `audio/diarization*.rs`) and the speaker identity registry — documented in `docs/DIARIZATION.md` and `tasks/`.
+- Task queue and implementation history live in `tasks/README.md`.
+
 ## Project Overview
 
 **Meetily** is a privacy-first AI meeting assistant that captures, transcribes, and summarizes meetings entirely on local infrastructure. The supported application is the Tauri desktop app with a Rust core.
@@ -384,10 +396,9 @@ $env:RUST_LOG="debug"; ./clean_run_windows.bat
 - **Error Handling**: Rust uses `anyhow::Result`, frontend uses try-catch with user-friendly messages
 - **Naming**: Audio devices use "microphone" and "system" consistently (not "input"/"output")
 - **Git Branches**:
-  - `main`: Stable releases
+  - `main`: personal mainline (this fork — see "Personal fork context" above)
   - `fix/*`: Bug fixes
   - `enhance/*`: Feature enhancements
-  - Current: `fix/audio-mixing` (working on audio pipeline improvements)
 
 ## Key Files Reference
 
