@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meeting Scribe — Configurações</title>
+<link rel="stylesheet" href="css/tokens.css"/>
+<link rel="stylesheet" href="css/app.css"/>
+<style>
+  .set-wrap { flex: 1; min-height: 0; display: flex; }
+  .set-nav {
+    width: 208px; flex: none;
+    padding: 18px 10px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .set-nav button {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border: 0; border-radius: var(--r-s);
+    background: transparent; color: var(--muted);
+    font: 500 13px/1.3 var(--font-ui);
+    text-align: left; cursor: pointer;
+  }
+  .set-nav button:hover { background: var(--hover); }
+  .set-nav button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+
+  .set-main { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 34px 48px; }
+  .set-col { width: min(640px, 100%); display: flex; flex-direction: column; gap: 16px; }
+  .set-col h1 { font: 650 19px/1.25 var(--font-display); letter-spacing: -0.01em; }
+  .set-col .lede { color: var(--muted); font-size: 13px; margin-top: -8px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-l);
+  }
+  .card-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 15px;
+  }
+  .card-row + .card-row { border-top: 1px solid var(--border); }
+  .card-row .info { flex: 1; min-width: 0; }
+  .card-row .info b { display: block; font: 600 13px/1.35 var(--font-ui); }
+  .card-row .info span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .card-row .mono-meta { font: 11.5px/1 var(--font-mono); color: var(--faint); }
+
+  .sect { display: none; }
+  .sect.on { display: block; }
+
+  /* provider rows */
+  .prov-radio { accent-color: var(--accent); width: 15px; height: 15px; flex: none; }
+  .prov-detail {
+    display: none;
+    padding: 14px 15px 16px 42px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    border-radius: 0 0 var(--r-l) var(--r-l);
+  }
+  .prov-detail.on { display: block; }
+  .cli-preset {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-m);
+    background: var(--surface);
+    margin-bottom: 8px;
+  }
+  .cli-preset input[type="radio"] { accent-color: var(--accent); }
+  .cli-preset b { font: 600 13px/1.3 var(--font-ui); }
+  .cli-preset .cmd { font: 11.5px/1.4 var(--font-mono); color: var(--muted); }
+  .cli-preset .grow { flex: 1; }
+  .test-out { margin-top: 10px; display: none; }
+  .test-out.on { display: block; }
+
+  /* registry */
+  .reg-row .actions { display: flex; gap: 4px; }
+  .samples-bar { display: flex; gap: 2px; margin-top: 4px; }
+  .samples-bar i { width: 5px; height: 8px; border-radius: 2px; background: var(--accent); opacity: 0.75; }
+  .samples-bar i.dim { background: var(--border-strong); }
+
+  .path-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 11px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-s);
+    background: var(--surface);
+    font: 12.5px/1.3 var(--font-mono);
+  }
+</style>
+</head>
+<body data-theme="light">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main">
+    <header class="header">
+      <button class="icon-btn js-show-sidebar" data-tip="Mostrar barra lateral" style="display:none" id="showSb"></button>
+      <div class="crumbs"><span class="here">Configurações</span></div>
+      <div class="grow"></div>
+      <span class="badge">sem telemetria · sem conta · sem nuvem</span>
+    </header>
+
+    <div class="set-wrap">
+      <nav class="set-nav" aria-label="Seções de configurações">
+        <button class="on" data-s="s-trans">Transcrição</button>
+        <button data-s="s-sum">Modelo de resumo</button>
+        <button data-s="s-diar">Diarização</button>
+        <button data-s="s-rec">Gravação</button>
+      </nav>
+
+      <div class="set-main">
+
+        <!-- ============ Transcrição ============ -->
+        <section class="sect on set-col" id="s-trans">
+          <h1>Transcrição</h1>
+          <p class="lede">Modelos Whisper rodam no seu Mac. Baixe uma vez, use offline para sempre.</p>
+
+          <div class="card">
+            <div class="card-row">
+              <div class="info">
+                <b>large-v3-turbo</b>
+                <span>Melhor equilíbrio para PT-BR · 1,6 GB</span>
+              </div>
+              <span class="badge accent">Metal · GPU</span>
+              <span class="badge ok">✓ Ativo</span>
+            </div>
+            <div class="card-row">
+              <div class="info">
+                <b>medium</b>
+                <span>Mais rápido, um pouco menos preciso · 1,5 GB</span>
+              </div>
+              <span class="mono-meta" id="dlPct">42%</span>
+              <div style="width:130px"><div class="progress"><i id="dlBar" style="width:42%"></i></div></div>
+              <button class="btn small ghost" id="dlCancel">Cancelar</button>
+            </div>
+            <div class="card-row">
+              <div class="info">
+                <b>small</b>
+                <span>Para máquinas com pouca RAM · 466 MB</span>
+              </div>
+              <button class="btn small" data-dl>Baixar</button>
+            </div>
+            <div class="card-row">
+              <div class="info">
+                <b>large-v3</b>
+                <span>Máxima precisão, ~2× mais lento · 2,9 GB</span>
+              </div>
+              <button class="btn small" data-dl>Baixar</button>
+            </div>
+          </div>
+
+          <div class="banner">
+            <span class="b-ico">ⓘ</span>
+            <div class="b-body">A aceleração <strong>Metal</strong> foi detectada neste Mac — a transcrição usa a GPU automaticamente.</div>
+          </div>
+        </section>
+
+        <!-- ============ Modelo de resumo ============ -->
+        <section class="sect set-col" id="s-sum">
+          <h1>Modelo de resumo</h1>
+          <p class="lede">Quem escreve os resumos. Local por padrão; provedores externos só quando você escolher.</p>
+
+          <div class="card" id="provCard">
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="builtin"/>
+              <div class="info"><b>IA integrada (local)</b><span>Modelo embutido no app · nada sai da máquina</span></div>
+              <span class="badge ok">recomendado</span>
+            </label>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="ollama"/>
+              <div class="info"><b>Ollama</b><span>Seus modelos locais via http://localhost:11434</span></div>
+              <span class="badge">local</span>
+            </label>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="claude"/>
+              <div class="info"><b>Claude</b><span>API da Anthropic · requer chave</span></div>
+              <span class="badge warn">nuvem</span>
+            </label>
+            <div class="prov-detail" id="d-claude">
+              <div class="field">
+                <label for="ck">Chave da API</label>
+                <input class="input" id="ck" type="password" placeholder="sk-ant-…" autocomplete="off"/>
+                <span class="hint">Guardada no Keychain do macOS, nunca em texto puro.</span>
+              </div>
+            </div>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="openai"/>
+              <div class="info"><b>OpenAI</b><span>requer chave</span></div>
+              <span class="badge warn">nuvem</span>
+            </label>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="groq"/>
+              <div class="info"><b>Groq</b><span>requer chave</span></div>
+              <span class="badge warn">nuvem</span>
+            </label>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="openrouter"/>
+              <div class="info"><b>OpenRouter</b><span>requer chave</span></div>
+              <span class="badge warn">nuvem</span>
+            </label>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="custom"/>
+              <div class="info"><b>Endpoint personalizado</b><span>Qualquer API compatível com OpenAI</span></div>
+            </label>
+            <div class="prov-detail" id="d-custom">
+              <div class="field">
+                <label for="ep">URL do endpoint</label>
+                <input class="input" id="ep" placeholder="http://192.168.0.10:8080/v1"/>
+              </div>
+            </div>
+            <label class="card-row">
+              <input type="radio" name="prov" class="prov-radio" value="cli" checked/>
+              <div class="info"><b>CLI Agent</b><span>Usa a assinatura de um CLI já instalado (Codex, Claude Code, Gemini)</span></div>
+              <span class="badge warn">nuvem</span>
+            </label>
+            <div class="prov-detail on" id="d-cli">
+              <div class="banner warn" style="margin-bottom:12px">
+                <span class="b-ico">⚠</span>
+                <div class="b-body"><strong>Este provider envia o transcrito para fora da máquina</strong> — incluindo os nomes dos falantes, se a opção estiver ativa na Diarização. Use apenas se a sua assinatura permitir esse conteúdo.</div>
+              </div>
+
+              <div class="cli-preset">
+                <input type="radio" name="cli" checked aria-label="Usar Codex"/>
+                <div><b>Codex</b><div class="cmd">codex exec --model gpt-5</div></div>
+                <span class="grow"></span>
+                <span class="badge ok">✓ instalado</span>
+              </div>
+              <div class="cli-preset">
+                <input type="radio" name="cli" aria-label="Usar Claude Code"/>
+                <div><b>Claude Code</b><div class="cmd">claude -p</div></div>
+                <span class="grow"></span>
+                <span class="badge ok">✓ instalado</span>
+              </div>
+              <div class="cli-preset">
+                <input type="radio" name="cli" aria-label="Usar Gemini"/>
+                <div><b>Gemini</b><div class="cmd">gemini</div></div>
+                <span class="grow"></span>
+                <span class="badge danger" data-tip="Nenhum executável 'gemini' no PATH">não encontrado</span>
+              </div>
+              <div class="cli-preset">
+                <input type="radio" name="cli" aria-label="Comando personalizado"/>
+                <div style="flex:1"><b>Comando personalizado</b>
+                  <input class="input" style="margin-top:6px;font-family:var(--font-mono);font-size:12px" placeholder="meu-cli --prompt -"/>
+                </div>
+              </div>
+
+              <button class="btn small" id="btnTest">Testar conexão</button>
+              <div class="test-out" id="testOk">
+                <div class="banner" style="border-color:transparent;background:var(--ok-soft);color:var(--ok)">
+                  <span class="b-ico">✓</span>
+                  <div class="b-body">Resposta recebida em <strong>1,2s</strong> — o CLI está autenticado e pronto.</div>
+                </div>
+              </div>
+              <div class="test-out" id="testWait" style="color:var(--muted);font-size:12.5px">
+                <span class="spinner" style="display:inline-block;vertical-align:-3px;margin-right:7px"></span>Executando <span class="mono">codex exec "ping"</span>…
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ Diarização ============ -->
+        <section class="sect set-col" id="s-diar">
+          <h1>Diarização</h1>
+          <p class="lede">Separa quem disse o quê e aprende as vozes que você nomear. Tudo no dispositivo.</p>
+
+          <div class="card">
+            <div class="card-row">
+              <div class="info"><b>Identificar falantes</b><span>Roda automaticamente ao fim de cada gravação</span></div>
+              <input type="checkbox" class="switch" checked aria-label="Ativar diarização"/>
+            </div>
+            <div class="card-row">
+              <div class="info"><b>Modelo de embeddings de voz</b><span>wespeaker-voxceleb · 79 MB</span></div>
+              <span class="badge ok">✓ baixado</span>
+            </div>
+            <div class="card-row">
+              <div class="info"><b>Nomes de falantes nos resumos</b><span>Quando ativo, os nomes entram no prompt do provider de resumo — inclusive nos de nuvem</span></div>
+              <input type="checkbox" class="switch" checked aria-label="Incluir nomes nos resumos"/>
+            </div>
+          </div>
+
+          <div>
+            <h1 style="font-size:15px;margin-bottom:2px">Registro de vozes</h1>
+            <p class="lede" style="margin-top:0">Vozes conhecidas são reconhecidas automaticamente na próxima reunião.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-row reg-row">
+              <span class="spk" data-c="1"><span class="spk-dot" style="background:currentColor"></span>Eduardo<span class="you">VOCÊ</span></span>
+              <div class="info">
+                <span>34 amostras de voz</span>
+                <div class="samples-bar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              </div>
+              <div class="actions">
+                <button class="btn small ghost">Renomear</button>
+              </div>
+            </div>
+            <div class="card-row reg-row">
+              <span class="spk" data-c="2"><span class="spk-dot" style="background:currentColor"></span>Rebeca Souza</span>
+              <div class="info">
+                <span>12 amostras de voz</span>
+                <div class="samples-bar"><i></i><i></i><i></i><i></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i></div>
+              </div>
+              <div class="actions">
+                <button class="btn small ghost">Renomear</button>
+                <button class="btn small ghost">Mesclar…</button>
+                <button class="btn small ghost" data-del="Rebeca Souza" style="color:var(--danger)">Excluir</button>
+              </div>
+            </div>
+            <div class="card-row reg-row">
+              <span class="spk" data-c="3"><span class="spk-dot" style="background:currentColor"></span>Jota</span>
+              <div class="info">
+                <span>9 amostras de voz</span>
+                <div class="samples-bar"><i></i><i></i><i></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i></div>
+              </div>
+              <div class="actions">
+                <button class="btn small ghost">Renomear</button>
+                <button class="btn small ghost">Mesclar…</button>
+                <button class="btn small ghost" data-del="Jota" style="color:var(--danger)">Excluir</button>
+              </div>
+            </div>
+            <div class="card-row reg-row">
+              <span class="spk" data-c="10"><span class="spk-dot" style="background:currentColor"></span>Convidado A</span>
+              <div class="info">
+                <span>2 amostras de voz</span>
+                <div class="samples-bar"><i></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i></div>
+              </div>
+              <div class="actions">
+                <button class="btn small ghost">Renomear</button>
+                <button class="btn small ghost">Mesclar…</button>
+                <button class="btn small ghost" data-del="Convidado A" style="color:var(--danger)">Excluir</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ Gravação ============ -->
+        <section class="sect set-col" id="s-rec">
+          <h1>Gravação</h1>
+          <p class="lede">Onde suas reuniões vivem — como arquivos de verdade, visíveis no Finder.</p>
+
+          <div class="card">
+            <div class="card-row">
+              <div class="info">
+                <b>Pasta das reuniões</b>
+                <span>A barra lateral espelha exatamente esta pasta</span>
+              </div>
+              <span class="path-chip">~/Documents/Meeting Scribe</span>
+              <button class="btn small">Alterar…</button>
+            </div>
+            <div class="card-row">
+              <div class="info">
+                <b>Estrutura de cada reunião</b>
+                <span class="mono" style="font-size:11.5px">audio.m4a · transcript.json · summary.md · meta.json</span>
+              </div>
+              <button class="btn small ghost">Revelar no Finder</button>
+            </div>
+          </div>
+
+          <div class="banner accent">
+            <span class="b-ico">🔒</span>
+            <div class="b-body">Mover ou renomear pastas no Finder é seguro — use <strong>Sincronizar</strong> na barra lateral para refletir as mudanças aqui.</div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- delete-voice modal: biometric wipe must be unmistakable -->
+<div class="overlay" id="modal-del">
+  <div class="modal" role="dialog" aria-label="Excluir voz do registro">
+    <div class="modal-head">
+      <h3>Excluir a voz de <span id="delName">—</span>?</h3>
+      <p>Isto apaga permanentemente os <strong>dados biométricos de voz</strong> desta pessoa
+      (embeddings e amostras). Ela deixa de ser reconhecida automaticamente nas próximas
+      reuniões. Transcrições existentes não são alteradas.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost js-close">Cancelar</button>
+      <button class="btn danger js-close">Excluir dados de voz</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  MS.init({ active: null });
+
+  const showSb = document.getElementById('showSb');
+  showSb.innerHTML = MS.icons.panel;
+  new MutationObserver(() => {
+    showSb.style.display = document.querySelector('.app').classList.contains('sidebar-hidden') ? '' : 'none';
+  }).observe(document.querySelector('.app'), { attributes: true, attributeFilter: ['class'] });
+
+  /* section nav */
+  document.querySelectorAll('.set-nav button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.set-nav button').forEach(x => x.classList.toggle('on', x === b));
+      document.querySelectorAll('.sect').forEach(s => s.classList.toggle('on', s.id === b.dataset.s));
+    });
+  });
+
+  /* whisper download simulation */
+  let pct = 42;
+  document.getElementById('dlCancel').addEventListener('click', function () {
+    clearInterval(dlInt);
+    const row = this.closest('.card-row');
+    row.querySelector('.mono-meta').remove();
+    row.querySelector('.progress').parentElement.remove();
+    this.outerHTML = '<button class="btn small" data-dl2>Baixar</button>';
+    row.querySelector('[data-dl2]').addEventListener('click', function () {
+      this.outerHTML = '<span class="mono-meta">0%</span><div style="width:130px"><div class="progress indeterminate"><i></i></div></div>';
+    });
+  });
+  const dlInt = setInterval(() => {
+    pct = Math.min(100, pct + Math.random() * 1.6);
+    document.getElementById('dlBar').style.width = pct + '%';
+    document.getElementById('dlPct').textContent = Math.floor(pct) + '%';
+    if (pct >= 100) {
+      clearInterval(dlInt);
+      const row = document.getElementById('dlBar').closest('.card-row');
+      row.querySelector('.mono-meta').remove();
+      row.querySelector('[style]').remove();
+      document.getElementById('dlCancel').outerHTML = '<span class="badge ok">✓ baixado</span>';
+    }
+  }, 900);
+  document.querySelectorAll('[data-dl]').forEach(b => {
+    b.addEventListener('click', function () {
+      this.outerHTML = '<span class="mono-meta">0%</span><div style="width:130px"><div class="progress indeterminate"><i></i></div></div>';
+    });
+  });
+
+  /* provider selection reveals detail panes */
+  const details = { claude: 'd-claude', custom: 'd-custom', cli: 'd-cli' };
+  document.querySelectorAll('input[name="prov"]').forEach(r => {
+    r.addEventListener('change', () => {
+      Object.values(details).forEach(id => document.getElementById(id).classList.remove('on'));
+      if (details[r.value]) document.getElementById(details[r.value]).classList.add('on');
+    });
+  });
+
+  /* CLI test */
+  document.getElementById('btnTest').addEventListener('click', () => {
+    document.getElementById('testOk').classList.remove('on');
+    document.getElementById('testWait').classList.add('on');
+    setTimeout(() => {
+      document.getElementById('testWait').classList.remove('on');
+      document.getElementById('testOk').classList.add('on');
+    }, 1900);
+  });
+
+  /* delete voice modal */
+  document.querySelectorAll('[data-del]').forEach(b => {
+    b.addEventListener('click', () => {
+      document.getElementById('delName').textContent = b.dataset.del;
+      MS.openModal('modal-del');
+    });
+  });
+</script>
+</body>
+</html>

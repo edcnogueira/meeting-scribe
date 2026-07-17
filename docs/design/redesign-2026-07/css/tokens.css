@@ -1,0 +1,117 @@
+/* ============================================================
+   Meeting Scribe — design tokens
+   Theme scoping is attribute-based so any element can carry
+   data-theme (used by the component sheet to nest themes).
+   ============================================================ */
+
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --r-s: 6px;
+  --r-m: 9px;
+  --r-l: 13px;
+
+  --sidebar-w: 264px;
+  --read-width: 68ch;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: oklch(97.4% 0.004 250);
+  --surface: oklch(99.2% 0.002 250);
+  --surface-2: oklch(95.4% 0.005 250);
+  --hover: oklch(93.4% 0.006 250);
+  --fg: oklch(24% 0.016 262);
+  --muted: oklch(48% 0.015 262);
+  --faint: oklch(62% 0.012 262);
+  --border: oklch(89.5% 0.007 255);
+  --border-strong: oklch(82% 0.009 255);
+
+  --accent: oklch(49% 0.095 195);
+  --accent-strong: oklch(42% 0.095 195);
+  --accent-fg: oklch(99% 0.005 195);
+  --accent-soft: oklch(92.5% 0.035 195);
+
+  --rec: oklch(57% 0.14 27);
+  --rec-soft: oklch(94.5% 0.035 27);
+
+  --warn: oklch(50% 0.11 75);
+  --warn-border: oklch(80% 0.09 80);
+  --warn-soft: oklch(95.5% 0.045 85);
+
+  --ok: oklch(48% 0.11 150);
+  --ok-soft: oklch(93.5% 0.05 150);
+
+  --danger: oklch(50% 0.17 27);
+  --danger-soft: oklch(94% 0.04 27);
+
+  --shadow-menu: 0 8px 28px oklch(20% 0.02 260 / 0.16), 0 1px 3px oklch(20% 0.02 260 / 0.1);
+  --shadow-modal: 0 24px 70px oklch(20% 0.02 260 / 0.3);
+  --scrim: oklch(25% 0.02 260 / 0.35);
+
+  --spk-bg-l: 92.5%;
+  --spk-bg-c: 0.055;
+  --spk-fg-l: 34%;
+  --spk-fg-c: 0.105;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: oklch(20% 0.012 262);
+  --surface: oklch(23.5% 0.012 262);
+  --surface-2: oklch(27.5% 0.013 262);
+  --hover: oklch(31% 0.014 262);
+  --fg: oklch(92.5% 0.006 255);
+  --muted: oklch(69% 0.012 258);
+  --faint: oklch(54% 0.012 258);
+  --border: oklch(31% 0.012 260);
+  --border-strong: oklch(38% 0.014 260);
+
+  --accent: oklch(76% 0.09 190);
+  --accent-strong: oklch(83% 0.09 190);
+  --accent-fg: oklch(21% 0.035 195);
+  --accent-soft: oklch(32% 0.045 195);
+
+  --rec: oklch(71% 0.14 27);
+  --rec-soft: oklch(30% 0.05 27);
+
+  --warn: oklch(82% 0.11 85);
+  --warn-border: oklch(45% 0.08 80);
+  --warn-soft: oklch(29.5% 0.045 85);
+
+  --ok: oklch(77% 0.12 155);
+  --ok-soft: oklch(29.5% 0.05 155);
+
+  --danger: oklch(70% 0.15 27);
+  --danger-soft: oklch(30.5% 0.05 27);
+
+  --shadow-menu: 0 8px 28px oklch(5% 0 0 / 0.5), 0 1px 3px oklch(5% 0 0 / 0.4);
+  --shadow-modal: 0 24px 70px oklch(5% 0 0 / 0.65);
+  --scrim: oklch(10% 0.01 260 / 0.5);
+
+  --spk-bg-l: 30.5%;
+  --spk-bg-c: 0.06;
+  --spk-fg-l: 86%;
+  --spk-fg-c: 0.085;
+}
+
+/* ------------------------------------------------------------
+   Speaker palette — 12 stable hues, resolved per theme via the
+   spk-* lightness/chroma tokens above. data-c is assigned once
+   per speaker and reused everywhere (chips, dots, accents).
+   ------------------------------------------------------------ */
+.spk        { --h: 250; }
+[data-c="1"]  { --h: 250; }  /* azul       */
+[data-c="2"]  { --h: 25;  }  /* coral      */
+[data-c="3"]  { --h: 145; }  /* verde      */
+[data-c="4"]  { --h: 305; }  /* roxo       */
+[data-c="5"]  { --h: 85;  }  /* dourado    */
+[data-c="6"]  { --h: 200; }  /* ciano      */
+[data-c="7"]  { --h: 350; }  /* rosa       */
+[data-c="8"]  { --h: 170; }  /* esmeralda  */
+[data-c="9"]  { --h: 280; }  /* violeta    */
+[data-c="10"] { --h: 55;  }  /* âmbar      */
+[data-c="11"] { --h: 225; }  /* azul-céu   */
+[data-c="12"] { --h: 120; }  /* oliva      */

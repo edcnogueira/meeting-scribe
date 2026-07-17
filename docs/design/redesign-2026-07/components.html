@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meeting Scribe — Componentes</title>
+<link rel="stylesheet" href="css/tokens.css"/>
+<link rel="stylesheet" href="css/app.css"/>
+<style>
+  body { overflow: auto; }
+  .sheet {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+  .sheet > header { margin-bottom: 28px; }
+  .sheet h1 { font: 650 22px/1.25 var(--font-display); letter-spacing: -0.01em; }
+  .sheet .lede { color: var(--muted); font-size: 13px; margin-top: 5px; }
+
+  .comp { margin-bottom: 30px; }
+  .comp > h2 {
+    font: 650 11px/1.3 var(--font-ui);
+    letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 10px;
+  }
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .scope {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-l);
+    padding: 18px;
+    font: 13px/1.5 var(--font-ui);
+  }
+  .scope[data-theme="dark"] { color-scheme: dark; }
+  .wrap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+
+  .fake-tree { max-width: 280px; }
+  .demo-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-m); }
+  .spk-row { display: flex; align-items: center; gap: 9px; padding: 8px 12px; }
+  .spk-row + .spk-row { border-top: 1px solid var(--border); }
+  .spk-row .conf { margin-left: auto; font: 11.5px/1 var(--font-mono); color: var(--muted); }
+  .spk-row .conf.low { color: var(--warn); }
+
+  .ctx.static { position: static; display: inline-block; }
+  .modal.static { width: 100%; box-shadow: var(--shadow-menu); }
+</style>
+</head>
+<body data-theme="light">
+<div class="sheet">
+  <header>
+    <div style="display:flex;align-items:center;gap:10px">
+      <h1>Componentes — Meeting Scribe</h1>
+      <span style="flex:1"></span>
+      <button class="icon-btn js-theme" data-tip="Tema da página"></button>
+      <a class="btn small ghost" href="index.html">← Visão geral</a>
+    </div>
+    <p class="lede">Cada espécime nos dois temas, lado a lado. Tokens em <span class="mono">css/tokens.css</span>; os mesmos componentes são usados em todas as telas.</p>
+  </header>
+
+  <!-- ============ speaker chips ============ -->
+  <div class="comp">
+    <h2>Chip de falante — 12 cores estáveis + estados</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light">
+        <div class="wrap-row" id="chips-l"></div>
+        <div class="wrap-row" style="margin-top:12px">
+          <span class="spk" data-c="1">Eduardo<span class="you">VOCÊ</span></span>
+          <span class="spk unknown">Falante 4</span>
+          <span class="spk" data-c="2" data-tip="Correspondência de voz: 92%&#10;12 amostras no registro">Rebeca (tooltip ao passar)</span>
+        </div>
+      </div>
+      <div class="scope" data-theme="dark">
+        <div class="wrap-row" id="chips-d"></div>
+        <div class="wrap-row" style="margin-top:12px">
+          <span class="spk" data-c="1">Eduardo<span class="you">VOCÊ</span></span>
+          <span class="spk unknown">Falante 4</span>
+          <span class="spk" data-c="2" data-tip="Correspondência de voz: 92%&#10;12 amostras no registro">Rebeca (tooltip ao passar)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ folder tree items ============ -->
+  <div class="comp">
+    <h2>Itens da árvore de pastas — estados</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div class="fake-tree" id="tree-l"></div></div>
+      <div class="scope" data-theme="dark"><div class="fake-tree" id="tree-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ provider row ============ -->
+  <div class="comp">
+    <h2>Linha de provider — selos instalado / não encontrado / nuvem</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div id="prov-l"></div></div>
+      <div class="scope" data-theme="dark"><div id="prov-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ privacy banner ============ -->
+  <div class="comp">
+    <h2>Faixas — privacidade (âmbar), erro acionável, informativa</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div class="stack" id="ban-l"></div></div>
+      <div class="scope" data-theme="dark"><div class="stack" id="ban-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ progress ============ -->
+  <div class="comp">
+    <h2>Progresso — barra, etapas de diarização, nível de áudio, gravação</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div class="stack" id="prog-l"></div></div>
+      <div class="scope" data-theme="dark"><div class="stack" id="prog-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ speakers rows ============ -->
+  <div class="comp">
+    <h2>Linha de falante — confiança, baixa confiança, renomear inline</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div class="demo-panel" id="srow-l"></div></div>
+      <div class="scope" data-theme="dark"><div class="demo-panel" id="srow-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ context menu ============ -->
+  <div class="comp">
+    <h2>Menu de contexto — com item desabilitado explicado</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div id="ctx-l"></div></div>
+      <div class="scope" data-theme="dark"><div id="ctx-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ modal ============ -->
+  <div class="comp">
+    <h2>Modal destrutivo — exclusão de dados biométricos</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div id="mod-l"></div></div>
+      <div class="scope" data-theme="dark"><div id="mod-d"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ buttons & inputs ============ -->
+  <div class="comp">
+    <h2>Botões, campos e interruptores</h2>
+    <div class="duo">
+      <div class="scope" data-theme="light"><div class="stack" id="ui-l"></div></div>
+      <div class="scope" data-theme="dark"><div class="stack" id="ui-d"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  // page theme toggle only (no sidebar on the spec sheet)
+  (function () {
+    const KEY = 'ms-theme';
+    let t = 'light';
+    try { t = localStorage.getItem(KEY) || 'light'; } catch (_) {}
+    function apply(x) {
+      document.documentElement.setAttribute('data-theme', x);
+      document.body.setAttribute('data-theme', x);
+      try { localStorage.setItem(KEY, x); } catch (_) {}
+      document.querySelector('.js-theme').innerHTML = x === 'dark' ? MS.icons.sun : MS.icons.moon;
+    }
+    apply(t);
+    document.querySelector('.js-theme').addEventListener('click', () => {
+      apply(document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  })();
+
+  const NAMES = ['Eduardo', 'Rebeca', 'Jota', 'Marina', 'Caio', 'Luiza', 'Pedro', 'Aline', 'Otávio', 'Bruna', 'Felipe', 'Sofia'];
+
+  function fill(id, html) {
+    document.getElementById(id + '-l').innerHTML = html;
+    document.getElementById(id + '-d').innerHTML = html;
+  }
+
+  fill('chips', NAMES.map((n, i) => '<span class="spk" data-c="' + (i + 1) + '">' + n + '</span>').join(''));
+
+  fill('tree',
+    '<div class="tree-group open"><button class="tree-item"><span class="chev">' + MS.icons.chev + '</span><span class="t-ico">' + MS.icons.folder + '</span><span class="t-name">Setare</span></button>' +
+    '<div class="tree-children" style="display:block">' +
+    '<a class="tree-item active" href="#"><span class="t-ico">' + MS.icons.doc + '</span><span class="t-name">2026-07-17 - Alinhamento de arquitetura de providers</span></a>' +
+    '<a class="tree-item" href="#"><span class="t-ico">' + MS.icons.doc + '</span><span class="t-name">2026-07-10 - Revisão do fluxo de OTP</span></a>' +
+    '<a class="tree-item" href="#"><span class="t-ico">' + MS.icons.doc + '</span><span class="t-name placeholder">Gravação de 17/07/2026 14:02</span><span class="pending-dot" data-tip="Aguardando primeiro resumo"></span></a>' +
+    '</div></div>' +
+    '<div class="tree-group"><button class="tree-item"><span class="chev">' + MS.icons.chev + '</span><span class="t-ico">' + MS.icons.folder + '</span><span class="t-name">Taxi Executivo</span></button></div>');
+
+  fill('prov',
+    '<div class="demo-panel">' +
+    '<div class="spk-row"><input type="radio" checked style="accent-color:var(--accent)"/><div style="flex:1"><b style="font-size:13px">Codex</b><div class="mono" style="font-size:11.5px;color:var(--muted)">codex exec --model gpt-5</div></div><span class="badge ok">✓ instalado</span></div>' +
+    '<div class="spk-row"><input type="radio" style="accent-color:var(--accent)"/><div style="flex:1"><b style="font-size:13px">Gemini</b><div class="mono" style="font-size:11.5px;color:var(--muted)">gemini</div></div><span class="badge danger">não encontrado</span></div>' +
+    '<div class="spk-row"><input type="radio" style="accent-color:var(--accent)"/><div style="flex:1"><b style="font-size:13px">Claude</b><div style="font-size:11.5px;color:var(--muted)">API da Anthropic · requer chave</div></div><span class="badge warn">nuvem</span></div>' +
+    '</div>');
+
+  fill('ban',
+    '<div class="banner warn"><span class="b-ico">⚠</span><div class="b-body"><strong>Este provider envia o transcrito para fora da máquina</strong> — incluindo os nomes dos falantes, se a opção estiver ativa.</div></div>' +
+    '<div class="banner danger"><span class="b-ico">✕</span><div class="b-body"><strong>A sessão do Codex CLI expirou.</strong> Renove no terminal: <span class="mono">codex login</span><div class="b-actions"><button class="btn small">Tentar novamente</button></div></div></div>' +
+    '<div class="banner"><span class="b-ico">ⓘ</span><div class="b-body">A aceleração <strong>Metal</strong> foi detectada — a transcrição usa a GPU automaticamente.</div></div>');
+
+  fill('prog',
+    '<div class="progress"><i style="width:62%"></i></div>' +
+    '<div class="stages">' +
+    '<div class="stage done"><span class="s-ico">✓</span>Decodificando áudio</div>' +
+    '<div class="stage done"><span class="s-ico">✓</span>Segmentando fala</div>' +
+    '<div class="stage now"><span class="s-ico"></span>Extraindo embeddings</div>' +
+    '<div class="stage"><span class="s-ico"></span>Agrupando vozes</div>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:14px">' +
+    '<div class="meter"><i style="height:35%"></i><i style="height:80%"></i><i style="height:55%"></i><i style="height:92%"></i><i style="height:40%"></i><i style="height:66%"></i><i style="height:28%"></i></div>' +
+    '<span class="rec-pill"><span class="pulse"></span>GRAVANDO</span>' +
+    '<span class="mono" style="font-weight:600">00:14:32</span>' +
+    '</div>');
+
+  fill('srow',
+    '<div class="spk-row"><span class="spk" data-c="1">Eduardo<span class="you">VOCÊ</span></span><span class="conf">98%</span></div>' +
+    '<div class="spk-row"><span class="spk" data-c="2">Rebeca</span><span class="conf">92%</span></div>' +
+    '<div class="spk-row"><span class="spk unknown">Falante 4</span><span class="conf low">41%</span></div>' +
+    '<div class="spk-row"><span class="spk" data-c="3">Jota</span><input class="input" value="Jota" style="max-width:150px;padding:3px 8px;font-size:12.5px" aria-label="Renomear"/><span class="conf">87%</span></div>');
+
+  fill('ctx',
+    '<div class="ctx static">' +
+    '<button>Nova pasta</button><button>Renomear</button><hr/>' +
+    '<button disabled>Excluir pasta<span class="why">Disponível apenas para pastas vazias — mova as 2 reuniões antes.</span></button>' +
+    '</div>');
+
+  fill('mod',
+    '<div class="modal static">' +
+    '<div class="modal-head"><h3>Excluir a voz de Rebeca Souza?</h3>' +
+    '<p>Isto apaga permanentemente os <strong>dados biométricos de voz</strong> desta pessoa (embeddings e amostras). Ela deixa de ser reconhecida automaticamente. Transcrições existentes não são alteradas.</p></div>' +
+    '<div class="modal-foot"><button class="btn ghost">Cancelar</button><button class="btn danger">Excluir dados de voz</button></div>' +
+    '</div>');
+
+  fill('ui',
+    '<div class="wrap-row"><button class="btn primary">Gerar resumo</button><button class="btn">Rediarizar</button><button class="btn ghost">Cancelar</button><button class="btn danger">Excluir dados de voz</button><button class="btn" disabled>Indisponível</button></div>' +
+    '<div class="wrap-row"><span class="badge ok">✓ Ativo</span><span class="badge warn">nuvem</span><span class="badge danger">não encontrado</span><span class="badge accent">Metal · GPU</span><span class="badge rec">● REC</span></div>' +
+    '<div class="wrap-row" style="gap:14px"><label style="display:flex;align-items:center;gap:8px;font-size:12.5px">Diarização automática <input type="checkbox" class="switch" checked/></label>' +
+    '<span class="kbd">⌘</span><span class="kbd">R</span></div>' +
+    '<div class="field" style="max-width:320px"><label>Chave da API</label><input class="input" type="password" placeholder="sk-ant-…"/><span class="hint">Guardada no Keychain do macOS.</span></div>');
+</script>
+</body>
+</html>

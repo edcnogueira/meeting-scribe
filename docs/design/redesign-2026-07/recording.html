@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meeting Scribe — Nova reunião</title>
+<link rel="stylesheet" href="css/tokens.css"/>
+<link rel="stylesheet" href="css/app.css"/>
+<style>
+  /* Recording view — single calm column */
+  .rec-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    justify-content: center;
+    padding: 40px 32px;
+  }
+  .rec-col { width: min(640px, 100%); display: flex; flex-direction: column; gap: 18px; }
+
+  .rec-title { font: 650 21px/1.25 var(--font-display); letter-spacing: -0.01em; }
+  .rec-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+  .device-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-l);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .dev-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: center; }
+  .dev-row > label { font: 600 12.5px/1.3 var(--font-ui); color: var(--fg); display: flex; align-items: center; gap: 7px; }
+  .perm-row {
+    display: flex; align-items: center; gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted);
+    flex-wrap: wrap;
+  }
+
+  /* live state */
+  .live-head {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-l);
+  }
+  .live-head .elapsed { font: 600 21px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+  .live-head .grow { flex: 1; }
+  .live-devices { font-size: 11.5px; color: var(--faint); }
+
+  .live-feed {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-l);
+    display: flex;
+    flex-direction: column;
+    min-height: 320px;
+    max-height: 46vh;
+  }
+  .live-feed-head {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    font: 600 11px/1 var(--font-ui);
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+  }
+  .live-feed-body { flex: 1; overflow-y: auto; padding: 8px 20px 16px; }
+  .live-feed-body .seg { animation: seg-in 0.4s ease; }
+  @keyframes seg-in { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+  .typing {
+    display: inline-flex; gap: 4px; padding: 10px 0 2px 80px;
+  }
+  .typing i {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--faint);
+    animation: ty 1.2s ease-in-out infinite;
+  }
+  .typing i:nth-child(2) { animation-delay: 0.15s; }
+  .typing i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes ty { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+  /* processing state */
+  .proc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-l);
+    padding: 28px 24px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    text-align: center;
+  }
+  .proc-card h2 { font: 650 16px/1.3 var(--font-display); }
+  .proc-card p { color: var(--muted); font-size: 12.5px; max-width: 42ch; }
+  .proc-card .progress { width: min(320px, 100%); }
+
+  .state { display: none; }
+  .state.on { display: contents; }
+</style>
+</head>
+<body data-theme="light">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main">
+    <header class="header">
+      <button class="icon-btn js-show-sidebar" data-tip="Mostrar barra lateral" style="display:none" id="showSb"></button>
+      <div class="crumbs"><span class="here">Nova reunião</span></div>
+      <div class="grow"></div>
+      <span id="hdrBadge"></span>
+    </header>
+
+    <div class="rec-wrap">
+      <div class="rec-col">
+
+        <!-- ===== state: setup ===== -->
+        <div class="state on" id="st-setup">
+          <div>
+            <h1 class="rec-title">Pronto para gravar</h1>
+            <p class="rec-sub">Áudio e transcrição ficam nesta máquina. Nada é enviado para a nuvem.</p>
+          </div>
+
+          <div class="device-card">
+            <div class="dev-row">
+              <label>Microfone</label>
+              <select class="input" id="micSel">
+                <option>Microfone do MacBook Pro</option>
+                <option>AirPods do Edu</option>
+                <option>Yeti Nano</option>
+              </select>
+            </div>
+            <div class="dev-row">
+              <label>Áudio do sistema</label>
+              <select class="input" id="sysSel">
+                <option>Capturar áudio do sistema (ScreenCaptureKit)</option>
+                <option>Não capturar</option>
+              </select>
+            </div>
+
+            <div class="banner warn" id="btWarn" style="display:none">
+              <span class="b-ico">⚠</span>
+              <div class="b-body">
+                <strong>AirPods como microfone reduzem a qualidade da captura.</strong><br/>
+                O macOS troca para o perfil SCO (8&nbsp;kHz) quando um fone Bluetooth também grava.
+                Prefira o microfone interno e mantenha os AirPods apenas como saída.
+              </div>
+            </div>
+
+            <div class="perm-row">
+              <span class="badge ok">✓ Microfone permitido</span>
+              <span class="badge ok">✓ Gravação de tela permitida</span>
+              <span class="faint" data-tip="Exigida pelo macOS para capturar o áudio do sistema.&#10;Nenhuma imagem é gravada.">necessária para o áudio do sistema · por quê?</span>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px">
+            <button class="btn primary" id="btnStart" style="padding:10px 20px;font-size:13.5px">
+              <span class="dot" style="width:9px;height:9px;border-radius:50%;background:currentColor;opacity:.85"></span>
+              Iniciar gravação
+            </button>
+            <span class="faint" style="font-size:12px">ou pressione <span class="kbd">⌘</span> <span class="kbd">R</span></span>
+          </div>
+        </div>
+
+        <!-- ===== state: recording ===== -->
+        <div class="state" id="st-live">
+          <div class="live-head">
+            <span class="rec-pill"><span class="pulse"></span>GRAVANDO</span>
+            <span class="elapsed mono" id="elapsed">00:00</span>
+            <div class="meter" id="meter" aria-label="Nível de áudio">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <div class="grow"></div>
+            <div class="live-devices" id="liveDevices">Microfone do MacBook Pro · áudio do sistema</div>
+            <button class="btn" id="btnStop">■ Parar</button>
+          </div>
+
+          <div class="live-feed">
+            <div class="live-feed-head">Transcrição ao vivo <span class="faint" style="letter-spacing:0;text-transform:none;font-weight:500">· falantes são identificados após a gravação</span></div>
+            <div class="live-feed-body" id="liveBody">
+              <div class="typing" id="typing"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== state: processing ===== -->
+        <div class="state" id="st-proc">
+          <div class="proc-card">
+            <span class="spinner" style="width:22px;height:22px;border-width:2.5px" id="procSpin"></span>
+            <h2 id="procTitle">Finalizando a transcrição…</h2>
+            <p id="procSub">O áudio está sendo transcrito localmente com o modelo Whisper large-v3-turbo. Você já pode fechar esta tela — o processamento continua.</p>
+            <div class="progress" id="procBar"><i style="width:8%"></i></div>
+            <a class="btn primary" id="btnOpen" href="meeting-empty.html" style="display:none">Abrir reunião</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  MS.init({ active: null });
+
+  // sidebar collapse ⇄ header button
+  const showSb = document.getElementById('showSb');
+  showSb.innerHTML = MS.icons.panel;
+  new MutationObserver(() => {
+    showSb.style.display = document.querySelector('.app').classList.contains('sidebar-hidden') ? '' : 'none';
+  }).observe(document.querySelector('.app'), { attributes: true, attributeFilter: ['class'] });
+
+  // Bluetooth degradation warning
+  const micSel = document.getElementById('micSel');
+  micSel.addEventListener('change', () => {
+    document.getElementById('btWarn').style.display =
+      micSel.value.includes('AirPods') ? '' : 'none';
+  });
+
+  // ---- state machine: setup → live → processing ----
+  const states = { setup: 'st-setup', live: 'st-live', proc: 'st-proc' };
+  function go(s) {
+    Object.values(states).forEach(id => document.getElementById(id).classList.remove('on'));
+    document.getElementById(states[s]).classList.add('on');
+    document.getElementById('hdrBadge').innerHTML =
+      s === 'live' ? '<span class="badge rec">● REC</span>' :
+      s === 'proc' ? '<span class="badge accent">Processando</span>' : '';
+  }
+
+  // live transcript simulation (PT-BR)
+  const FEED = [
+    [4,  "Bom, acho que já estamos todos. Vamos começar pela pauta do provider de resumo."],
+    [11, "Só confirmando: essa call está sendo gravada localmente, certo? Ninguém recebe o áudio."],
+    [17, "Exato, fica tudo no meu disco. Então — o problema de hoje é a janela de contexto nas reuniões longas."],
+    [26, "Nas de duas horas o resumo perde as decisões do fim. A gente precisa decidir entre truncar melhor ou dividir em blocos."],
+    [38, "Minha proposta é map-reduce: resumir por blocos de vinte minutos e consolidar no final."],
+    [47, "Isso dobra o tempo de geração no built-in local. Em compensação, o resultado fica muito mais fiel."],
+    [58, "Podemos medir com a retro de ontem, ela tem uma hora e cinquenta. Sirvo de cobaia."]
+  ];
+
+  let timer = null, feedTimer = null, meterTimer = null, sec = 0;
+
+  function fmt(s) {
+    const m = Math.floor(s / 60), r = s % 60;
+    return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+  }
+
+  function startLive() {
+    go('live');
+    document.getElementById('liveDevices').textContent =
+      micSel.value + (document.getElementById('sysSel').value.startsWith('Capturar') ? ' · áudio do sistema' : '');
+    sec = 0; document.getElementById('elapsed').textContent = fmt(0);
+    timer = setInterval(() => { sec++; document.getElementById('elapsed').textContent = fmt(sec); }, 1000);
+
+    const bars = document.querySelectorAll('#meter i');
+    meterTimer = setInterval(() => {
+      bars.forEach(b => b.style.height = (18 + Math.random() * 78) + '%');
+    }, 140);
+
+    const body = document.getElementById('liveBody');
+    const typing = document.getElementById('typing');
+    let i = 0;
+    function push() {
+      if (i >= FEED.length) { i = 0; } // loop the sample feed for the demo recording
+      const [t, text] = FEED[i++];
+      const el = document.createElement('div');
+      el.className = 'seg no-speaker';
+      el.innerHTML = '<span class="ts">' + fmt(sec) + '</span><p class="s-text">' + text + '</p>';
+      body.insertBefore(el, typing);
+      body.scrollTop = body.scrollHeight;
+      feedTimer = setTimeout(push, 2600 + Math.random() * 1800);
+    }
+    feedTimer = setTimeout(push, 1400);
+  }
+
+  function stopLive() {
+    clearInterval(timer); clearInterval(meterTimer); clearTimeout(feedTimer);
+    go('proc');
+    const bar = document.querySelector('#procBar i');
+    let p = 8;
+    const int = setInterval(() => {
+      p = Math.min(100, p + 3 + Math.random() * 6);
+      bar.style.width = p + '%';
+      if (p >= 100) {
+        clearInterval(int);
+        document.getElementById('procSpin').style.display = 'none';
+        document.getElementById('procTitle').textContent = 'Transcrição concluída';
+        document.getElementById('procSub').textContent =
+          'A reunião foi salva em Sem pasta. Identifique os falantes e gere o primeiro resumo na tela da reunião.';
+        document.getElementById('btnOpen').style.display = '';
+      }
+    }, 180);
+  }
+
+  document.getElementById('btnStart').addEventListener('click', startLive);
+  document.getElementById('btnStop').addEventListener('click', stopLive);
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'r') {
+      e.preventDefault();
+      if (document.getElementById('st-setup').classList.contains('on')) startLive();
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meeting Scribe — HyperFrames</title>
+<style>
+  :root {
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  [data-theme="light"] {
+    color-scheme: light;
+    --bg: oklch(97.4% 0.004 250);
+    --surface: oklch(99.2% 0.002 250);
+    --fg: oklch(24% 0.016 262);
+    --muted: oklch(48% 0.015 262);
+    --faint: oklch(62% 0.012 262);
+    --border: oklch(89.5% 0.007 255);
+    --accent: oklch(49% 0.095 195);
+    --accent-soft: oklch(92.5% 0.035 195);
+    --rec: oklch(57% 0.14 27);
+  }
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --bg: oklch(20% 0.012 262);
+    --surface: oklch(23.5% 0.012 262);
+    --fg: oklch(92.5% 0.006 255);
+    --muted: oklch(69% 0.012 258);
+    --faint: oklch(54% 0.012 258);
+    --border: oklch(31% 0.012 260);
+    --accent: oklch(76% 0.09 190);
+    --accent-soft: oklch(32% 0.045 195);
+    --rec: oklch(71% 0.14 27);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font: 14px/1.55 var(--font-ui);
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 64px 32px 80px; }
+
+  .mast { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 8px; }
+  .mast .mark {
+    width: 44px; height: 44px; flex: none;
+    border-radius: 11px;
+    background: var(--accent);
+    display: grid; place-items: center;
+    color: var(--bg);
+  }
+  h1 { font: 650 26px/1.2 var(--font-display); letter-spacing: -0.015em; }
+  .promise { color: var(--muted); font-size: 14.5px; margin-top: 3px; }
+  .mast .grow { flex: 1; }
+  .theme-btn {
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+    display: grid; place-items: center; font-size: 15px;
+  }
+
+  .sys {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin: 22px 0 34px;
+    font-size: 12px; color: var(--faint);
+  }
+  .sys .dots { display: flex; gap: 5px; }
+  .sys .dots i { width: 12px; height: 12px; border-radius: 50%; }
+  .sys .sep { color: var(--border); }
+
+  .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .frame {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 20px 18px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, translate 0.15s;
+  }
+  .frame:hover { border-color: var(--accent); translate: 0 -2px; }
+  .frame .num {
+    font: 600 11px/1 var(--font-mono);
+    color: var(--faint);
+    letter-spacing: 0.12em;
+  }
+  .frame h2 { font: 640 16px/1.3 var(--font-display); margin: 8px 0 5px; letter-spacing: -0.01em; }
+  .frame p { font-size: 12.5px; color: var(--muted); text-wrap: pretty; }
+  .frame .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+  .frame .tag {
+    font: 600 10.5px/1.5 var(--font-ui);
+    padding: 1px 8px;
+    border-radius: 99px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .frame.wide { grid-column: 1 / -1; }
+  .foot { margin-top: 34px; font-size: 12px; color: var(--faint); }
+  .foot .mono { font-family: var(--font-mono); }
+  @media (max-width: 680px) { .frames { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-theme="light">
+<div class="wrap">
+  <div class="mast">
+    <div class="mark">
+      <svg width="22" height="22" viewBox="0 0 16 16" fill="none"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4" stroke="currentColor" stroke-width="1.4"/><path d="M3.2 7.6a4.8 4.8 0 009.6 0M8 12.4v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </div>
+    <div>
+      <h1>Meeting Scribe</h1>
+      <p class="promise">Suas reuniões ficam na sua máquina. Cinco quadros interativos do app completo, em tema claro e escuro.</p>
+    </div>
+    <div class="grow"></div>
+    <button class="theme-btn" id="themeBtn" title="Alternar tema">◐</button>
+  </div>
+
+  <div class="sys">
+    <span>Sistema: grafite frio · acento verde-azulado calmo · coral suave para gravação</span>
+    <span class="sep">|</span>
+    <span class="dots" title="12 cores estáveis de falante">
+      <i style="background:oklch(60% 0.11 250)"></i><i style="background:oklch(60% 0.11 25)"></i><i style="background:oklch(60% 0.11 145)"></i><i style="background:oklch(60% 0.11 305)"></i><i style="background:oklch(60% 0.11 85)"></i><i style="background:oklch(60% 0.11 200)"></i><i style="background:oklch(60% 0.11 350)"></i><i style="background:oklch(60% 0.11 170)"></i><i style="background:oklch(60% 0.11 280)"></i><i style="background:oklch(60% 0.11 55)"></i><i style="background:oklch(60% 0.11 225)"></i><i style="background:oklch(60% 0.11 120)"></i>
+    </span>
+    <span>12 falantes</span>
+  </div>
+
+  <div class="frames">
+    <a class="frame wide" href="meeting.html">
+      <span class="num">01</span>
+      <h2>Detalhes da reunião — a tela central</h2>
+      <p>Transcrição longa com chips de falante, painel de falantes com confiança e renomear inline (ensina o registro de vozes), resumo em Markdown com seletor de template. Rediarização com etapas ao vivo e cancelamento.</p>
+      <div class="tags"><span class="tag">transcrição</span><span class="tag">falantes</span><span class="tag">resumo</span><span class="tag">rediarizar</span></div>
+    </a>
+
+    <a class="frame" href="recording.html">
+      <span class="num">02</span>
+      <h2>Nova reunião</h2>
+      <p>Seleção de dispositivos, aviso de Bluetooth, permissões do macOS. Gravar de verdade: transcrição ao vivo, nível de áudio, cronômetro e o estado de processamento ao parar.</p>
+      <div class="tags"><span class="tag">gravação</span><span class="tag">ao vivo</span><span class="tag">⌘R</span></div>
+    </a>
+
+    <a class="frame" href="meeting-empty.html">
+      <span class="num">03</span>
+      <h2>Estados vazios e de erro</h2>
+      <p>Título provisório aguardando resumo, reunião sem diarização, resultado degenerado de 190 falantes com aviso, e o erro acionável de sessão expirada do CLI (codex login) — com retry que dá o título à reunião.</p>
+      <div class="tags"><span class="tag">vazios</span><span class="tag">190 falantes</span><span class="tag">erro de CLI</span></div>
+    </a>
+
+    <a class="frame" href="settings.html">
+      <span class="num">04</span>
+      <h2>Configurações</h2>
+      <p>Modelos Whisper com download e selo Metal, provider de resumo com CLI Agent (selos instalado/não encontrado, teste, aviso de privacidade), diarização com registro de vozes e pasta de gravação.</p>
+      <div class="tags"><span class="tag">whisper</span><span class="tag">providers</span><span class="tag">registro de vozes</span></div>
+    </a>
+
+    <a class="frame" href="components.html">
+      <span class="num">05</span>
+      <h2>Componentes</h2>
+      <p>O conjunto completo nos dois temas, lado a lado: chips de falante, itens de árvore, linhas de provider, faixas, progresso, menus de contexto e modais.</p>
+      <div class="tags"><span class="tag">claro + escuro</span><span class="tag">12 chips</span></div>
+    </a>
+  </div>
+
+  <p class="foot">Conteúdo de exemplo em PT-BR · tokens em <span class="mono">css/tokens.css</span> · comportamento compartilhado em <span class="mono">js/app.js</span> · o tema escolhido persiste entre os quadros.</p>
+</div>
+
+<script>
+  (function () {
+    const KEY = 'ms-theme';
+    let t = 'light';
+    try { t = localStorage.getItem(KEY) || 'light'; } catch (_) {}
+    function apply(x) {
+      document.documentElement.setAttribute('data-theme', x);
+      document.body.setAttribute('data-theme', x);
+      try { localStorage.setItem(KEY, x); } catch (_) {}
+    }
+    apply(t);
+    document.getElementById('themeBtn').addEventListener('click', () => {
+      apply(document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  })();
+</script>
+</body>
+</html>
