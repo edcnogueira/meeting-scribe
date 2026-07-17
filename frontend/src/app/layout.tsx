@@ -98,6 +98,14 @@ export default function RootLayout({
       })
   }, [])
 
+  // Push persisted diarization toggles into the Rust backend on startup (D5),
+  // so recording / auto-diarize honor the user's choices without opening settings.
+  useEffect(() => {
+    import('@/lib/diarizationSettings')
+      .then(({ syncDiarizationSettingsToBackend }) => syncDiarizationSettingsToBackend())
+      .catch((err) => console.warn('[Layout] Diarization settings sync failed:', err));
+  }, []);
+
   // Disable context menu in production
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') {

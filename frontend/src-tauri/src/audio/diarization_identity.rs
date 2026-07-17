@@ -481,6 +481,67 @@ pub async fn api_rename_meeting_speaker<R: Runtime>(
     })
 }
 
+/// One detected speaker of a saved meeting, resolved for display (task D5).
+///
+/// `cluster_label` is the stable per-meeting key ("Eu" / "Speaker N") used by
+/// [`api_rename_meeting_speaker`]; `display_name` is what the UI shows (the
+/// person's name when the cluster is matched/enrolled, else the cluster label).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeetingSpeakerInfo {
+    pub cluster_label: String,
+    pub display_name: String,
+    pub speaker_id: Option<String>,
+    pub score: Option<f64>,
+    pub is_self: bool,
+    pub has_identity: bool,
+}
+
+/// List a meeting's detected speakers with resolved display names. Empty when
+/// the meeting has not been diarized yet. Never exposes raw embeddings.
+#[tauri::command]
+pub async fn api_get_meeting_speakers<R: Runtime>(
+    app: AppHandle<R>,
+    meeting_id: String,
+) -> Result<Vec<MeetingSpeakerInfo>, String> {
+    let pool = pool_from(&app)?;
+    let self_name = self_name();
+    let clusters = SpeakersRepository::get_meeting_speakers(&pool, &meeting_id)
+        .await
+        .map_err(|e| format!("Failed to load meeting speakers: {}", e))?;
+
+    let mut out = Vec::with_capacity(clusters.len());
+    for cluster in clusters {
+        let (display_name, is_self, has_identity) = match &cluster.speaker_id {
+            Some(sid) => {
+                let identity = SpeakersRepository::get_speaker_identity(&pool, sid)
+                    .await
+                    .map_err(|e| format!("Failed to resolve identity: {}", e))?;
+                match identity {
+                    Some(i) => (i.name, i.is_self, true),
+                    // Dangling reference (e.g. identity deleted): fall back to the label.
+                    None => {
+                        let is_self = cluster.cluster_label == self_name;
+                        (cluster.cluster_label.clone(), is_self, false)
+                    }
+                }
+            }
+            None => {
+                let is_self = cluster.cluster_label == self_name;
+                (cluster.cluster_label.clone(), is_self, false)
+            }
+        };
+        out.push(MeetingSpeakerInfo {
+            cluster_label: cluster.cluster_label,
+            display_name,
+            speaker_id: cluster.speaker_id,
+            score: cluster.score,
+            is_self,
+            has_identity,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

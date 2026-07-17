@@ -607,6 +607,10 @@ pub fn run() {
             audio::diarization_identity::api_rename_speaker_identity,
             audio::diarization_identity::api_merge_speaker_identities,
             audio::diarization_identity::api_delete_speaker_identity,
+            // Speaker UI: meeting speakers list + runtime toggles (D5)
+            audio::diarization_identity::api_get_meeting_speakers,
+            audio::diarization_settings::get_diarization_settings,
+            audio::diarization_settings::set_diarization_settings,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,

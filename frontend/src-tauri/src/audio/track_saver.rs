@@ -52,10 +52,21 @@ pub const SAVE_SEPARATE_TRACKS_ENV: &str = "MEETILY_SAVE_SEPARATE_TRACKS";
 /// 1. `MEETILY_SAVE_SEPARATE_TRACKS` environment variable (if parseable).
 /// 2. [`SAVE_SEPARATE_TRACKS_DEFAULT`].
 ///
-/// NOTE (D5): once a UI toggle exists this should read from the `settings`
-/// table; the env override is a lightweight stand-in that avoids plumbing a DB
-/// pool into the audio recording lifecycle for now.
+/// D5: the runtime UI toggle (persisted by the frontend and pushed via
+/// `set_diarization_settings`) takes precedence; when the UI has not set a value
+/// this defers to [`env_save_separate_tracks`] so the env override / compiled
+/// default still applies (backward compatible with D2).
 pub fn should_save_separate_tracks() -> bool {
+    crate::audio::diarization_settings::save_separate_tracks()
+}
+
+/// Environment-variable / compiled-default fallback for the "save separate
+/// tracks" toggle. Used by the runtime settings resolver when the UI has not
+/// pushed an explicit value.
+///
+/// Accepted truthy values: `1`, `true`, `yes`, `on`. Falsy: `0`, `false`,
+/// `no`, `off`. Any other value falls back to [`SAVE_SEPARATE_TRACKS_DEFAULT`].
+pub(crate) fn env_save_separate_tracks() -> bool {
     match std::env::var(SAVE_SEPARATE_TRACKS_ENV) {
         Ok(raw) => match raw.trim().to_ascii_lowercase().as_str() {
             "1" | "true" | "yes" | "on" => true,

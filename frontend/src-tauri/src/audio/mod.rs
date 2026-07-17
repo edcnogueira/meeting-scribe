@@ -55,6 +55,7 @@ pub mod import;
 // Diarization module (post-process a saved meeting to label speaker per segment)
 pub mod diarization;
 pub mod diarization_identity;  // D4: speaker identity registry (matching + enrollment)
+pub mod diarization_settings;  // D5: runtime toggles (enable / auto-diarize / separate tracks)
 
 pub use devices::{
     default_input_device, default_output_device, get_device_and_config, list_audio_devices,

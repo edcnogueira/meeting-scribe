@@ -2,6 +2,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ModelConfig, ModelSettingsModal } from "./ModelSettingsModal"
 import { TranscriptModelProps, TranscriptSettings } from "./TranscriptSettings"
 import { RecordingSettings, RecordingPreferences } from "./RecordingSettings"
+import { DiarizationSettings } from "./DiarizationSettings"
 import { About } from "./About";
 
 interface SettingTabsProps {
@@ -35,6 +36,7 @@ export function SettingTabs({
   <TabsList>
     <TabsTrigger value="transcriptSettings">Transcript</TabsTrigger>
     <TabsTrigger value="modelSettings">Ai Summary</TabsTrigger>
+    <TabsTrigger value="speakerSettings">Speakers</TabsTrigger>
     <TabsTrigger value="recordingSettings">Preferences</TabsTrigger>
     <TabsTrigger value="about">About</TabsTrigger>
   </TabsList>
@@ -52,6 +54,9 @@ onSave={onSave}
     setTranscriptModelConfig={setTranscriptModelConfig}
     // onSave={onSaveTranscript}
   />
+  </TabsContent>
+  <TabsContent value="speakerSettings">
+    <DiarizationSettings />
   </TabsContent>
   <TabsContent value="recordingSettings">
     <RecordingSettings />

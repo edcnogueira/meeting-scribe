@@ -1,0 +1,41 @@
+/**
+ * Deterministic per-speaker colors (task D5).
+ *
+ * Maps a speaker label ("Eu", "Speaker 2", or a person's name) to a stable
+ * color so the same speaker always renders with the same hue across a meeting
+ * and across sessions. Pure string hash -> HSL, no persistence needed.
+ */
+
+export interface SpeakerColor {
+  /** Solid color for the dot / accent (text-on-white safe). */
+  color: string;
+  /** Tinted background for the chip. */
+  background: string;
+  /** Border for the chip. */
+  border: string;
+}
+
+// FNV-1a style hash: small, deterministic, well-distributed for short strings.
+function hashString(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  // Force unsigned 32-bit.
+  return hash >>> 0;
+}
+
+/**
+ * Resolve a stable color set for a speaker label. Trims/normalizes so
+ * "Speaker 1" and " Speaker 1 " share a color.
+ */
+export function getSpeakerColor(label: string): SpeakerColor {
+  const key = (label ?? '').trim();
+  const hue = hashString(key) % 360;
+  return {
+    color: `hsl(${hue}, 65%, 42%)`,
+    background: `hsl(${hue}, 70%, 95%)`,
+    border: `hsl(${hue}, 60%, 82%)`,
+  };
+}

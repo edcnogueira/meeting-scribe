@@ -12,6 +12,7 @@ import {
   readMeetingSummaryLanguage,
   readCachedDetectedSummaryLanguage,
 } from '@/lib/summary-language-preferences';
+import { loadDiarizationSettings } from '@/lib/diarizationSettings';
 
 async function resolveSummaryLanguage(
   meetingId: string,
@@ -444,9 +445,18 @@ export function useSummaryGeneration({
       return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
     };
 
+    // D5 (opt-in): prefix each line with the diarized speaker name so the LLM can
+    // attribute action items per person. Off by default; falls back to the plain
+    // format for segments without a speaker.
+    const withSpeakers = loadDiarizationSettings().summarizeWithSpeakers;
+    const speakerPrefix = (t: Transcript): string => {
+      const name = t.speaker?.trim();
+      return withSpeakers && name ? `${name}: ` : '';
+    };
+
     return {
       transcriptText: allTranscripts
-        .map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}`)
+        .map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${speakerPrefix(t)}${t.text}`)
         .join('\n'),
       transcriptTexts: allTranscripts.map(t => t.text),
     };

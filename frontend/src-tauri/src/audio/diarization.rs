@@ -642,7 +642,12 @@ pub fn auto_diarize_enabled() -> bool {
 /// the toggle is off, the engine/model is unavailable, or a job is already
 /// running. Never blocks the caller.
 pub fn maybe_auto_diarize<R: Runtime>(app: &AppHandle<R>, meeting_id: String) {
-    if !auto_diarize_enabled() {
+    // D5: gate on the runtime UI toggles (master switch + auto-diarize), which
+    // fall back to the `MEETILY_AUTO_DIARIZE` env default when the UI has not
+    // pushed a value.
+    if !crate::audio::diarization_settings::enabled()
+        || !crate::audio::diarization_settings::auto_diarize()
+    {
         return;
     }
     if is_diarization_in_progress() {
