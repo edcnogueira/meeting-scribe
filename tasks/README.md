@@ -28,7 +28,7 @@ Ordem: C1 → C2 → C3 (sequencial). Executado em 2026-07-17 (PRs #1–#3, squa
 
 Pastas de reuniões espelhando o disco (cada pasta do app = diretório real, gestão pelo app) e título automático `YYYY-MM-DD - <assunto>` extraído do H1 que o LLM já gera no resumo.
 
-- [ ] [O1 — Pastas de reuniões no app (espelho real do Finder)](organization/O1-pastas-de-reunioes.md)
-- [ ] [O2 — Título personalizado: data + assunto específico](organization/O2-titulo-com-data-e-assunto.md)
+- [x] [O1 — Pastas de reuniões no app (espelho real do Finder)](organization/O1-pastas-de-reunioes.md)
+- [x] [O2 — Título personalizado: data + assunto específico](organization/O2-titulo-com-data-e-assunto.md)
 
-Ordem: O1 ∥ O2 (independentes; podem andar em paralelo).
+Ordem: O1 ∥ O2 (paralelo). Executado em 2026-07-17 (PRs #7–#9, squash na `main`).
