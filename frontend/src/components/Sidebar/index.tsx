@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, Folder, FolderOpen, FolderPlus, FolderInput, RefreshCw, AlertTriangle, Inbox } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
-import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
+import type { CurrentMeeting, SidebarItem, FolderNode } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SettingTabs } from '../SettingTabs';
@@ -32,13 +32,6 @@ import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
 
-interface SidebarItem {
-  id: string;
-  title: string;
-  type: 'folder' | 'file';
-  children?: SidebarItem[];
-}
-
 const Sidebar: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -54,14 +47,56 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress
+    serverAddress,
+    folderTree,
+    refreshFolderTree,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    moveMeeting,
   } = useSidebar();
 
   // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
   const { openImportDialog } = useImportDialog();
   const { betaFeatures } = useConfig();
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
+  const EXPANDED_FOLDERS_KEY = 'meetily.sidebar.expandedFolders';
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
+    // Persisted expand/collapse state (O1). 'meetings' root is always included.
+    if (typeof window === 'undefined') return new Set(['meetings']);
+    try {
+      const stored = window.localStorage.getItem(EXPANDED_FOLDERS_KEY);
+      if (stored) {
+        const ids = JSON.parse(stored) as string[];
+        return new Set(['meetings', ...ids]);
+      }
+    } catch {
+      /* ignore malformed storage */
+    }
+    return new Set(['meetings']);
+  });
+
+  // Persist expand/collapse state whenever it changes.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(EXPANDED_FOLDERS_KEY, JSON.stringify(Array.from(expandedFolders)));
+    } catch {
+      /* ignore quota/serialization errors */
+    }
+  }, [expandedFolders]);
+
+  // O1 folder-management UI state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: SidebarItem } | null>(null);
+  const [folderDialog, setFolderDialog] = useState<{ open: boolean; mode: 'create' | 'rename'; parentPath: string | null; path: string | null; name: string }>(
+    { open: false, mode: 'create', parentPath: null, path: null, name: '' }
+  );
+  const [deleteFolderState, setDeleteFolderState] = useState<{ open: boolean; path: string | null; title: string }>(
+    { open: false, path: null, title: '' }
+  );
+  const [moveDialog, setMoveDialog] = useState<{ open: boolean; meetingId: string | null; title: string; targetPath: string | null }>(
+    { open: false, meetingId: null, title: '', targetPath: null }
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
@@ -332,6 +367,8 @@ const Sidebar: React.FC = () => {
       console.log('Meeting deleted successfully');
       const updatedMeetings = meetings.filter((m: CurrentMeeting) => m.id !== itemId);
       setMeetings(updatedMeetings);
+      // Keep the on-disk folder tree in sync.
+      refreshFolderTree();
 
       // Track meeting deletion
       Analytics.trackMeetingDeleted(itemId);
@@ -399,6 +436,8 @@ const Sidebar: React.FC = () => {
       if (currentMeeting?.id === meetingId) {
         setCurrentMeeting({ id: meetingId, title: newTitle });
       }
+      // Reflect the new title in the folder tree.
+      refreshFolderTree();
 
       // Track the edit
       Analytics.trackButtonClick('edit_meeting_title', 'sidebar');
@@ -431,6 +470,101 @@ const Sidebar: React.FC = () => {
     }
     setExpandedFolders(newExpanded);
   };
+
+  // ---- O1: folder-management actions ----
+
+  // Close the context menu on any outside click or Escape.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  const openContextMenu = (e: React.MouseEvent, item: SidebarItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, item });
+  };
+
+  const openNewFolderDialog = (parentPath: string | null) => {
+    setFolderDialog({ open: true, mode: 'create', parentPath, path: null, name: '' });
+  };
+
+  const openRenameFolderDialog = (item: SidebarItem) => {
+    setFolderDialog({ open: true, mode: 'rename', parentPath: null, path: item.path ?? null, name: item.title });
+  };
+
+  const handleFolderDialogConfirm = async () => {
+    const name = folderDialog.name.trim();
+    if (!name) {
+      toast.error('Folder name cannot be empty');
+      return;
+    }
+    try {
+      if (folderDialog.mode === 'create') {
+        await createFolder(folderDialog.parentPath, name);
+        toast.success('Folder created');
+      } else if (folderDialog.path) {
+        await renameFolder(folderDialog.path, name);
+        toast.success('Folder renamed');
+      }
+      setFolderDialog({ open: false, mode: 'create', parentPath: null, path: null, name: '' });
+    } catch (error) {
+      toast.error(folderDialog.mode === 'create' ? 'Failed to create folder' : 'Failed to rename folder', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleDeleteFolderConfirm = async () => {
+    if (!deleteFolderState.path) return;
+    try {
+      await deleteFolder(deleteFolderState.path);
+      toast.success('Folder deleted');
+    } catch (error) {
+      toast.error('Failed to delete folder', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDeleteFolderState({ open: false, path: null, title: '' });
+    }
+  };
+
+  const handleMoveConfirm = async () => {
+    if (!moveDialog.meetingId) return;
+    try {
+      await moveMeeting(moveDialog.meetingId, moveDialog.targetPath);
+      toast.success('Meeting moved');
+      setMoveDialog({ open: false, meetingId: null, title: '', targetPath: null });
+    } catch (error) {
+      toast.error('Failed to move meeting', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  // Flatten the folder tree into selectable targets for the "Move to folder" dialog.
+  const moveTargets = useMemo(() => {
+    const targets: { path: string | null; label: string; depth: number }[] = [
+      { path: null, label: 'Unfiled (root)', depth: 0 },
+    ];
+    const walk = (nodes: FolderNode[], depth: number) => {
+      for (const node of nodes) {
+        targets.push({ path: node.path, label: node.name, depth });
+        if (node.folders.length) walk(node.folders, depth + 1);
+      }
+    };
+    if (folderTree) walk(folderTree.folders, 0);
+    return targets;
+  }, [folderTree]);
 
   // Expose setShowModelSettings to window for Rust tray to call
   useEffect(() => {
@@ -555,7 +689,8 @@ const Sidebar: React.FC = () => {
     const isExpanded = expandedFolders.has(item.id);
     const paddingLeft = `${depth * 12 + 12}px`;
     const isActive = item.type === 'file' && currentMeeting?.id === item.id;
-    const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call');
+    const isMeetingItem = item.type === 'file' && !item.id.startsWith('intro-call');
+    const isMissing = item.type === 'file' && item.missing === true;
 
     // Check if this item has a matching transcript snippet
     const matchingResult = isMeetingItem ? findMatchingSnippet(item.id) : null;
@@ -563,99 +698,155 @@ const Sidebar: React.FC = () => {
 
     if (isCollapsed) return null;
 
-    return (
-      <div key={item.id}>
-        <div
-          className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
-            : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
-              hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
-            } cursor-pointer`
-            }`}
-          style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
-          onClick={() => {
-            if (item.type === 'folder') {
-              toggleFolder(item.id);
-            } else {
-              setCurrentMeeting({ id: item.id, title: item.title });
-              const basePath = item.id.startsWith('intro-call') ? '/' :
-                item.id.includes('-') ? `/meeting-details?id=${item.id}` : `/notes/${item.id}`;
-              router.push(basePath);
-            }
-          }}
-        >
-          {item.type === 'folder' ? (
-            <>
-              {item.id === 'meetings' ? (
-                <Calendar className="w-4 h-4 mr-2" />
-              ) : item.id === 'notes' ? (
-                <Calendar className="w-4 h-4 mr-2" />
-              ) : null}
-              <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
-              <div className="ml-auto">
-                {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
-                )}
+    // ---- Organization / Unfiled folder node ----
+    if (item.type === 'folder') {
+      const isUnfiled = item.folderKind === 'unfiled';
+      return (
+        <div key={item.id}>
+          <div
+            className="flex items-center px-3 py-2 my-0.5 rounded-md text-sm hover:bg-gray-50 cursor-pointer group"
+            style={{ paddingLeft }}
+            onClick={() => toggleFolder(item.id)}
+            onContextMenu={(e) => openContextMenu(e, item)}
+          >
+            {isExpanded ? (
+              <ChevronDown className="w-4 h-4 text-gray-400 mr-1 flex-shrink-0" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-gray-400 mr-1 flex-shrink-0" />
+            )}
+            {isUnfiled ? (
+              <Inbox className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
+            ) : isExpanded ? (
+              <FolderOpen className="w-4 h-4 mr-2 text-blue-500 flex-shrink-0" />
+            ) : (
+              <Folder className="w-4 h-4 mr-2 text-blue-500 flex-shrink-0" />
+            )}
+            <span className="flex-1 break-words font-medium text-gray-700">{item.title}</span>
+            {!isUnfiled && (
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                <button
+                  onClick={(e) => { e.stopPropagation(); openNewFolderDialog(item.path ?? null); }}
+                  className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                  aria-label="New subfolder"
+                  title="New subfolder"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); openRenameFolderDialog(item); }}
+                  className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                  aria-label="Rename folder"
+                  title="Rename folder"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (item.isEmpty && item.path) setDeleteFolderState({ open: true, path: item.path, title: item.title });
+                  }}
+                  disabled={!item.isEmpty}
+                  className={`p-1 rounded-md flex-shrink-0 ${item.isEmpty ? 'hover:text-red-600 hover:bg-red-50' : 'text-gray-300 cursor-not-allowed'}`}
+                  aria-label="Delete folder"
+                  title={item.isEmpty ? 'Delete empty folder' : 'Folder must be empty to delete'}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
-              {searchQuery && item.id === 'meetings' && isSearching && (
-                <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col w-full">
-              <div className="flex items-center w-full">
-                {isMeetingItem ? (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
-                    <File className="w-3.5 h-3.5 text-gray-600" />
-                  </div>
-                ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
-                    <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  </div>
-                )}
-                <span className="flex-1 break-words">{item.title}</span>
-                {isMeetingItem && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditStart(item.id, item.title);
-                      }}
-                      className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                      aria-label="Edit meeting title"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteModalState({ isOpen: true, itemId: item.id });
-                      }}
-                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete meeting"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Show transcript match snippet if available */}
-              {hasTranscriptMatch && (
-                <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-                  <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
-                </div>
-              )}
+            )}
+          </div>
+          {isExpanded && item.children && (
+            <div>
+              {item.children.map(child => renderItem(child, depth + 1))}
             </div>
           )}
         </div>
-        {item.type === 'folder' && isExpanded && item.children && (
-          <div className="ml-1">
-            {item.children.map(child => renderItem(child, depth + 1))}
+      );
+    }
+
+    // ---- Meeting leaf ----
+    return (
+      <div key={item.id}>
+        <div
+          className={`flex items-center transition-all duration-150 group px-3 py-2 my-0.5 rounded-md text-sm ${
+            isMissing ? 'opacity-60' :
+            isActive ? 'bg-blue-100 text-blue-700 font-medium' :
+            hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
+          } ${isMissing ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          style={{ paddingLeft }}
+          onContextMenu={(e) => !isMissing && openContextMenu(e, item)}
+          onClick={() => {
+            if (isMissing) return;
+            setCurrentMeeting({ id: item.id, title: item.title });
+            const basePath = item.id.startsWith('intro-call') ? '/' :
+              item.id.includes('-') ? `/meeting-details?id=${item.id}` : `/notes/${item.id}`;
+            router.push(basePath);
+          }}
+        >
+          <div className="flex flex-col w-full">
+            <div className="flex items-center w-full">
+              {isMissing ? (
+                <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-amber-100">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                </div>
+              ) : isMeetingItem ? (
+                <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
+                  <File className="w-3.5 h-3.5 text-gray-600" />
+                </div>
+              ) : (
+                <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
+                  <Plus className="w-3.5 h-3.5 text-blue-600" />
+                </div>
+              )}
+              <span className="flex-1 break-words">{item.title}</span>
+              {isMissing && (
+                <span className="text-xs text-amber-600 mr-1 flex-shrink-0" title="Recording folder not found on disk">missing</span>
+              )}
+              {isMeetingItem && !isMissing && (
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMoveDialog({ open: true, meetingId: item.id, title: item.title, targetPath: item.parentFolderPath ?? null });
+                    }}
+                    className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                    aria-label="Move meeting to folder"
+                    title="Move to folder..."
+                  >
+                    <FolderInput className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditStart(item.id, item.title);
+                    }}
+                    className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                    aria-label="Edit meeting title"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteModalState({ isOpen: true, itemId: item.id });
+                    }}
+                    className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
+                    aria-label="Delete meeting"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Show transcript match snippet if available */}
+            {hasTranscriptMatch && (
+              <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
+                <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -742,12 +933,32 @@ const Sidebar: React.FC = () => {
                 {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
                   <div key={item.id}>
                     <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
+                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg group"
                     >
                       <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
                       <span className="text-gray-700">{item.title}</span>
                       {searchQuery && item.id === 'meetings' && isSearching && (
                         <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
+                      )}
+                      {item.id === 'meetings' && (
+                        <div className="ml-auto flex items-center gap-1">
+                          <button
+                            onClick={() => openNewFolderDialog(null)}
+                            className="p-1 rounded-md text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+                            aria-label="New folder"
+                            title="New folder"
+                          >
+                            <FolderPlus className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => { refreshFolderTree(); }}
+                            className="p-1 rounded-md text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+                            aria-label="Refresh folders"
+                            title="Refresh (pick up Finder changes)"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -824,6 +1035,163 @@ const Sidebar: React.FC = () => {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
       />
+
+      {/* Confirmation Modal for empty-folder Delete (O1) */}
+      <ConfirmationModal
+        isOpen={deleteFolderState.open}
+        text={`Delete the empty folder "${deleteFolderState.title}"? This removes the directory from disk.`}
+        onConfirm={handleDeleteFolderConfirm}
+        onCancel={() => setDeleteFolderState({ open: false, path: null, title: '' })}
+      />
+
+      {/* O1: right-click context menu for folders and meetings */}
+      {contextMenu && (
+        <div
+          className="fixed z-[60] min-w-[180px] bg-white border border-gray-200 rounded-md shadow-lg py-1 text-sm"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.item.type === 'folder' ? (
+            <>
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-100 flex items-center gap-2"
+                onClick={() => { openNewFolderDialog(contextMenu.item.path ?? null); setContextMenu(null); }}
+              >
+                <FolderPlus className="w-4 h-4" /> New subfolder
+              </button>
+              {contextMenu.item.folderKind !== 'unfiled' && (
+                <>
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-gray-100 flex items-center gap-2"
+                    onClick={() => { openRenameFolderDialog(contextMenu.item); setContextMenu(null); }}
+                  >
+                    <Pencil className="w-4 h-4" /> Rename
+                  </button>
+                  <button
+                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 ${contextMenu.item.isEmpty ? 'hover:bg-gray-100 text-red-600' : 'text-gray-300 cursor-not-allowed'}`}
+                    disabled={!contextMenu.item.isEmpty}
+                    title={contextMenu.item.isEmpty ? '' : 'Folder must be empty to delete'}
+                    onClick={() => {
+                      if (contextMenu.item.isEmpty && contextMenu.item.path) {
+                        setDeleteFolderState({ open: true, path: contextMenu.item.path, title: contextMenu.item.title });
+                      }
+                      setContextMenu(null);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete{!contextMenu.item.isEmpty ? ' (not empty)' : ''}
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-100 flex items-center gap-2"
+                onClick={() => {
+                  const it = contextMenu.item;
+                  setMoveDialog({ open: true, meetingId: it.id, title: it.title, targetPath: it.parentFolderPath ?? null });
+                  setContextMenu(null);
+                }}
+              >
+                <FolderInput className="w-4 h-4" /> Move to folder...
+              </button>
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-100 flex items-center gap-2"
+                onClick={() => { handleEditStart(contextMenu.item.id, contextMenu.item.title); setContextMenu(null); }}
+              >
+                <Pencil className="w-4 h-4" /> Rename
+              </button>
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-100 flex items-center gap-2 text-red-600"
+                onClick={() => { setDeleteModalState({ isOpen: true, itemId: contextMenu.item.id }); setContextMenu(null); }}
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* O1: create / rename folder dialog */}
+      <Dialog open={folderDialog.open} onOpenChange={(open) => { if (!open) setFolderDialog({ open: false, mode: 'create', parentPath: null, path: null, name: '' }); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <VisuallyHidden>
+            <DialogTitle>{folderDialog.mode === 'create' ? 'New Folder' : 'Rename Folder'}</DialogTitle>
+          </VisuallyHidden>
+          <div className="py-4">
+            <h3 className="text-lg font-semibold mb-4">{folderDialog.mode === 'create' ? 'New Folder' : 'Rename Folder'}</h3>
+            <input
+              type="text"
+              value={folderDialog.name}
+              onChange={(e) => setFolderDialog(prev => ({ ...prev, name: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleFolderDialogConfirm();
+                else if (e.key === 'Escape') setFolderDialog({ open: false, mode: 'create', parentPath: null, path: null, name: '' });
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Folder name"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setFolderDialog({ open: false, mode: 'create', parentPath: null, path: null, name: '' })}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleFolderDialogConfirm}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+            >
+              {folderDialog.mode === 'create' ? 'Create' : 'Save'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* O1: move meeting to folder dialog */}
+      <Dialog open={moveDialog.open} onOpenChange={(open) => { if (!open) setMoveDialog({ open: false, meetingId: null, title: '', targetPath: null }); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <VisuallyHidden>
+            <DialogTitle>Move Meeting</DialogTitle>
+          </VisuallyHidden>
+          <div className="py-4">
+            <h3 className="text-lg font-semibold mb-1">Move meeting</h3>
+            <p className="text-sm text-gray-500 mb-4 break-words">{moveDialog.title}</p>
+            <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
+              {moveTargets.map((target) => {
+                const selected = moveDialog.targetPath === target.path;
+                return (
+                  <button
+                    key={target.path ?? '__root__'}
+                    onClick={() => setMoveDialog(prev => ({ ...prev, targetPath: target.path }))}
+                    className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${selected ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-50'}`}
+                    style={{ paddingLeft: `${target.depth * 14 + 12}px` }}
+                  >
+                    {target.path === null ? <Inbox className="w-4 h-4 flex-shrink-0" /> : <Folder className="w-4 h-4 text-blue-500 flex-shrink-0" />}
+                    <span className="break-words">{target.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setMoveDialog({ open: false, meetingId: null, title: '', targetPath: null })}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMoveConfirm}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+            >
+              Move here
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Meeting Title Modal */}
       <Dialog open={editModalState.isOpen} onOpenChange={(open) => {
