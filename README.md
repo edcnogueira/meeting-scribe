@@ -24,9 +24,10 @@ Records your microphone and system audio, transcribes locally with Whisper, tell
 | **Local speaker diarization** | Post-recording pipeline: pyannote segmentation + WeSpeaker embeddings running on ONNX Runtime (`ort`), agglomerative clustering, timestamp-overlap attribution. The mic track is labeled deterministically as *you* — no model guessing involved. |
 | **Speaker identity registry** | A local registry of people with voice profiles (embeddings in SQLite). Rename "Speaker 1" to "João" once — next meeting, João is recognized automatically (cosine similarity ≥ 0.65). Deleting a person wipes their biometric data. |
 | **Speaker-aware UI** | Colored speaker labels in transcripts, a per-meeting speakers panel (rename, re-diarize, expected-participants hint), diarization settings with model download, and an opt-in speaker-prefixed transcript for LLM summaries. |
+| **CLI Agent summary provider** | Generate summaries through a locally installed subscription CLI — `codex` (OpenAI), `claude` (Claude Code, Anthropic), or `gemini` (Google) — or any custom command. No API keys: it reuses the CLI's own login. Pick it under *Settings → Summary Model → CLI Agent*, with a preset selector, an installed/not-found badge, and a Test button. ⚠️ **Privacy:** unlike the fully local Built-in AI / Ollama options, this sends the full transcript — including any assigned speaker names — to the chosen CLI, which forwards it to that subscription provider's servers. It leaves your machine. |
 | **No phone-home** | Upstream auto-updater removed — builds are produced and installed locally. |
 
-Everything else — recording pipeline, Whisper/Parakeet transcription, VAD, summary templates, LLM providers (built-in llama.cpp sidecar, Ollama, Claude, OpenAI, Groq, OpenRouter, custom endpoint) — comes from upstream Meetily v0.4.0 and works as documented there.
+Everything else — recording pipeline, Whisper/Parakeet transcription, VAD, summary templates, LLM providers (built-in llama.cpp sidecar, Ollama, Claude, OpenAI, Groq, OpenRouter, custom endpoint, and the CLI Agent above) — comes from upstream Meetily v0.4.0 and works as documented there.
 
 See [docs/DIARIZATION.md](docs/DIARIZATION.md) for how the diarization pipeline works, and [tasks/](tasks/README.md) for the task-by-task implementation history (D1–D5).
 
@@ -77,7 +78,6 @@ Notes:
 
 ## Roadmap
 
-- **CLI summary provider** — generate summaries through locally installed subscription CLIs (`codex exec`, `claude -p`, `gemini -p`): no API keys, no local LLM load.
 - Markdown export of meetings (with speakers) into an Obsidian vault.
 - Cleanups: dead-code removal, PostHog telemetry audit, `cargo test`/`clippy` in CI.
 

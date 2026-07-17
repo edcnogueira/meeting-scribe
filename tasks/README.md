@@ -19,7 +19,7 @@ Ordem: D1 e D2 são independentes entre si (podem andar em paralelo); D3 depende
 Plano: `WIKI/personal/Meetily/Planos/Plano - Provedor CLI para Resumos.md`. Resumo via CLI de IA já instalada (`codex exec`, `claude -p`, `gemini -p`) em vez de API key ou modelo local. O transcript enviado ao LLM já chega com os falantes da diarização prefixados (D5, opt-in `summarizeWithSpeakers`) — os resumos devem usar esses nomes ("Speaker N" ou renomeado). A Fase 4 do plano (contribuição upstream) foi cancelada: o fork está destacado, sem PR/issue para o upstream.
 
 - [x] [C1 — Spike: validar as CLIs de IA (codex/claude/gemini)](cli-summary/C1-spike-clis.md)
-- [ ] [C2 — Backend: provedor `cli-agent` (Rust)](cli-summary/C2-backend-provedor-cli.md)
+- [x] [C2 — Backend: provedor `cli-agent` (Rust)](cli-summary/C2-backend-provedor-cli.md)
 - [ ] [C3 — UI de settings + validação end-to-end com falantes](cli-summary/C3-ui-settings-e-validacao.md)
 
 Ordem: C1 → C2 → C3 (sequencial; branch `enhance/cli-summary-provider` a partir de `main`).
