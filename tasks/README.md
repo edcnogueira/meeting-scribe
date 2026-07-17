@@ -23,3 +23,12 @@ Plano: `WIKI/personal/Meetily/Planos/Plano - Provedor CLI para Resumos.md`. Resu
 - [x] [C3 — UI de settings + validação end-to-end com falantes](cli-summary/C3-ui-settings-e-validacao.md) — implementado; pendente validação manual E2E (reunião real diarizada)
 
 Ordem: C1 → C2 → C3 (sequencial). Executado em 2026-07-17 (PRs #1–#3, squash na `main`).
+
+## Organização no Meeting Notes
+
+Pastas de reuniões espelhando o disco (cada pasta do app = diretório real, gestão pelo app) e título automático `YYYY-MM-DD - <assunto>` extraído do H1 que o LLM já gera no resumo.
+
+- [ ] [O1 — Pastas de reuniões no app (espelho real do Finder)](organization/O1-pastas-de-reunioes.md)
+- [ ] [O2 — Título personalizado: data + assunto específico](organization/O2-titulo-com-data-e-assunto.md)
+
+Ordem: O1 ∥ O2 (independentes; podem andar em paralelo).
