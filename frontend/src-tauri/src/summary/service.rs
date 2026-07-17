@@ -4,10 +4,9 @@ use crate::database::repositories::{
 use crate::summary::llm_client::LLMProvider;
 use crate::summary::language_detection::detect_summary_language;
 use crate::summary::metadata::read_detected_summary_language_from_metadata;
-use crate::summary::processor::{
-    extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
-};
+use crate::summary::processor::{generate_meeting_summary, language_name_from_code};
 use crate::summary::templates::{self, Template};
+use crate::summary::title::derive_meeting_title;
 use crate::ollama::metadata::ModelMetadataCache;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -568,17 +567,42 @@ impl SummaryService {
                 );
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
-                if let Some(name) = extract_meeting_name_from_markdown(&final_markdown)
-                    .filter(|n| !n.is_empty())
-                {
-                    info!("Extracted meeting name from summary: '{}'", name);
-                    if let Err(e) =
-                        MeetingsRepository::update_meeting_name(&pool, &meeting_id, &name).await
-                    {
-                        error!("Failed to update meeting name for {}: {}", meeting_id, e);
-                    } else {
-                        info!("Successfully updated meeting name for {}", meeting_id);
+                // Derive a `YYYY-MM-DD - <specific subject>` title from the summary H1,
+                // using the MEETING's own creation date. Only auto-generated placeholder
+                // titles (or titles we previously produced) are replaced; a hand-edited
+                // title and a missing/generic summary H1 both keep the current title.
+                match MeetingsRepository::get_meeting_metadata(&pool, &meeting_id).await {
+                    Ok(Some(meeting)) => {
+                        let created_date = meeting.created_at.0.format("%Y-%m-%d").to_string();
+                        if let Some(new_title) = derive_meeting_title(
+                            &final_markdown,
+                            &meeting.title,
+                            &created_date,
+                            Some(&template.name),
+                        ) {
+                            info!("Deriving meeting title from summary: '{}'", new_title);
+                            if let Err(e) =
+                                MeetingsRepository::update_meeting_name(&pool, &meeting_id, &new_title)
+                                    .await
+                            {
+                                error!("Failed to update meeting title for {}: {}", meeting_id, e);
+                            } else {
+                                info!("Successfully updated meeting title for {}", meeting_id);
+                            }
+                        } else {
+                            info!(
+                                "Keeping current meeting title for {} (manual edit or non-specific summary title)",
+                                meeting_id
+                            );
+                        }
                     }
+                    Ok(None) => {
+                        warn!("Meeting {} not found while deriving title", meeting_id)
+                    }
+                    Err(e) => error!(
+                        "Failed to load meeting metadata for title derivation ({}): {}",
+                        meeting_id, e
+                    ),
                 }
 
                 let result_json = build_summary_result_json(

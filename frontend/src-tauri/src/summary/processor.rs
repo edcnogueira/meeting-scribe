@@ -162,6 +162,9 @@ fn build_final_report_system_prompt(
 6. Output **only** the completed Markdown report.
 7. If unsure about something, omit it.
 
+**TITLE (`# ` heading) — REQUIRED:**
+Replace the `# <Add Title here>` placeholder with a short, SPECIFIC title that names what THIS meeting was actually about — its central topic, decision, or project (e.g. `# Q3 Roadmap Prioritization`, not a generic label). Keep it under ~10 words. Write the title in the SAME language as the rest of the report. NEVER output a generic title such as "Meeting Summary", "Meeting Minutes", "Meeting Notes", or the template name, and NEVER leave the placeholder text.
+
 **SECTION-SPECIFIC INSTRUCTIONS:**
 {section_instructions}
 

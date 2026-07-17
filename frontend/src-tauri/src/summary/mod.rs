@@ -61,6 +61,7 @@ pub mod service;
 pub mod summary_engine;
 pub mod template_commands;
 pub mod templates;
+pub mod title;
 
 // Re-export Tauri commands (with their generated __cmd__ variants)
 pub use commands::{
