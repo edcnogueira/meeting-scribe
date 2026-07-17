@@ -1,41 +1,56 @@
 'use client';
 
-import { getSpeakerColor } from '@/lib/speakerColors';
+import { getSpeakerColorIndex } from '@/lib/speakerColors';
 
 interface SpeakerChipProps {
   speaker: string;
   /** Optional match score (0..1) shown in the tooltip when available. */
   score?: number;
+  /** Marks the current user — renders the "VOCÊ" badge from the design. */
+  isYou?: boolean;
+  /** Renders the dashed "unknown speaker" state regardless of the label. */
+  unknown?: boolean;
   className?: string;
 }
 
 /**
  * Small colored label identifying the speaker of a transcript segment (D5).
- * Color is deterministic per speaker name. Renders nothing when there is no
- * speaker, so undiarized segments look exactly as before.
+ *
+ * Redesign (task R1): the color is one of 12 stable palette hues resolved from
+ * the token-driven `.spk` styles via a deterministic `data-c` index, so the same
+ * speaker always renders with the same hue in both light and dark themes.
+ * Renders nothing when there is no speaker, so undiarized segments look
+ * exactly as before.
  */
-export function SpeakerChip({ speaker, score, className }: SpeakerChipProps) {
+export function SpeakerChip({ speaker, score, isYou, unknown, className }: SpeakerChipProps) {
   const name = (speaker ?? '').trim();
   if (!name) return null;
 
-  const c = getSpeakerColor(name);
-  const title =
-    score !== undefined && Number.isFinite(score)
-      ? `${name} · match ${Math.round(score * 100)}%`
-      : name;
+  const hasScore = score !== undefined && Number.isFinite(score);
+  // Multiline confidence tooltip via the design's `data-tip` pattern.
+  const tip = hasScore
+    ? `Correspondência de voz: ${Math.round((score as number) * 100)}%`
+    : undefined;
+
+  if (unknown) {
+    return (
+      <span className={`spk unknown ${className ?? ''}`} data-tip={tip} title={hasScore ? tip : undefined}>
+        {name}
+      </span>
+    );
+  }
+
+  const c = getSpeakerColorIndex(name);
 
   return (
     <span
-      title={title}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium leading-none flex-shrink-0 ${className ?? ''}`}
-      style={{ color: c.color, backgroundColor: c.background, border: `1px solid ${c.border}` }}
+      className={`spk ${className ?? ''}`}
+      data-c={c}
+      data-tip={tip}
+      title={hasScore ? tip : undefined}
     >
-      <span
-        className="inline-block w-1.5 h-1.5 rounded-full"
-        style={{ backgroundColor: c.color }}
-        aria-hidden="true"
-      />
       {name}
+      {isYou && <span className="you">VOCÊ</span>}
     </span>
   );
 }
