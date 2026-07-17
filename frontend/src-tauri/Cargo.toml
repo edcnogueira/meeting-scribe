@@ -106,6 +106,10 @@ silero_rs = { git = "https://github.com/emotechlab/silero-rs", rev = "26a6460", 
 ort = { version = "2.0.0-rc.10" }  # ONNX Runtime for Parakeet models
 thiserror = "2.0.16"                # Error handling for Parakeet
 
+# Diarization model download: segmentation ships as .tar.bz2 (D3)
+tar = "0.4"                         # TAR extraction (diarization model archive)
+bzip2 = "0.4"                       # BZ2 decompression (diarization model archive)
+
 # Async
 tokio = { version = "1.32.0", features = ["full", "tracing"] }
 tokio-util = "0.7"  # Utilities for tokio including CancellationToken

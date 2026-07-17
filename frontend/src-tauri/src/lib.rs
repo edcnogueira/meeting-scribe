@@ -49,6 +49,7 @@ pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
+pub mod diarization_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -471,6 +472,14 @@ pub fn run() {
                 }
             });
 
+            // Set diarization models directory and initialize the engine on startup
+            diarization_engine::commands::set_models_directory(&_app.handle());
+            tauri::async_runtime::spawn(async {
+                if let Err(e) = diarization_engine::commands::diarization_init().await {
+                    log::error!("Failed to initialize diarization engine on startup: {}", e);
+                }
+            });
+
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -582,6 +591,16 @@ pub fn run() {
             parakeet_engine::commands::parakeet_cancel_download,
             parakeet_engine::commands::parakeet_delete_corrupted_model,
             parakeet_engine::commands::open_parakeet_models_folder,
+            diarization_engine::commands::diarization_init,
+            diarization_engine::commands::diarization_get_model_status,
+            diarization_engine::commands::diarization_is_model_available,
+            diarization_engine::commands::diarization_is_model_loaded,
+            diarization_engine::commands::diarization_get_models_directory,
+            diarization_engine::commands::diarization_download_model,
+            diarization_engine::commands::diarization_cancel_download,
+            audio::diarization::api_diarize_meeting,
+            audio::diarization::cancel_diarization_command,
+            audio::diarization::is_diarization_in_progress_command,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,
