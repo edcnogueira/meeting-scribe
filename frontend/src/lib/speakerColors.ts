@@ -39,3 +39,22 @@ export function getSpeakerColor(label: string): SpeakerColor {
     border: `hsl(${hue}, 60%, 82%)`,
   };
 }
+
+/**
+ * Number of stable hues in the redesign speaker palette (see the `data-c`
+ * definitions in `src/styles/design-system.css`).
+ */
+export const SPEAKER_PALETTE_SIZE = 12;
+
+/**
+ * Map a speaker label to a stable palette index in the range 1..12 (task R1).
+ *
+ * The same label always resolves to the same slot across a meeting and across
+ * sessions, and the value is meant to be applied as the `data-c` attribute so
+ * the token-driven `.spk` styles pick the corresponding hue in either theme.
+ */
+export function getSpeakerColorIndex(label: string): number {
+  const key = (label ?? '').trim();
+  if (!key) return 1;
+  return (hashString(key) % SPEAKER_PALETTE_SIZE) + 1;
+}

@@ -1,10 +1,11 @@
 'use client'
 
 import './globals.css'
+import '@/styles/design-system.css'
 import { Source_Sans_3 } from 'next/font/google'
-import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
-import MainContent from '@/components/MainContent'
+import { ThemeProvider, ThemeNoFlashScript } from '@/components/theme/ThemeProvider'
+import { AppShell } from '@/components/shell/AppShell'
 import AnalyticsProvider from '@/components/AnalyticsProvider'
 import { Toaster, toast } from 'sonner'
 import "sonner/dist/styles.css"
@@ -240,7 +241,9 @@ export default function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${sourceSans3.variable} font-sans antialiased`}>
+      <body className={`${sourceSans3.variable} antialiased`}>
+        <ThemeNoFlashScript />
+        <ThemeProvider>
         <AnalyticsProvider>
           <RecordingStateProvider>
             <TranscriptProvider>
@@ -259,10 +262,7 @@ export default function RootLayout({
                               {showOnboarding ? (
                                 <OnboardingFlow onComplete={handleOnboardingComplete} />
                               ) : (
-                                <div className="flex">
-                                  <Sidebar />
-                                  <MainContent>{children}</MainContent>
-                                </div>
+                                <AppShell>{children}</AppShell>
                               )}
                               {/* Import audio overlay and dialog */}
                               <ImportDropOverlay visible={showDropOverlay} />
@@ -283,6 +283,7 @@ export default function RootLayout({
             </TranscriptProvider>
           </RecordingStateProvider>
         </AnalyticsProvider>
+        </ThemeProvider>
 
         <Toaster position="bottom-center" richColors closeButton />
       </body>
