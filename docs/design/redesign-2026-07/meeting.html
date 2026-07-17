@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meeting Scribe — Alinhamento de arquitetura de providers</title>
+<link rel="stylesheet" href="css/tokens.css"/>
+<link rel="stylesheet" href="css/app.css"/>
+<style>
+  .zones {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 384px;
+    gap: 14px;
+    padding: 14px 16px 16px;
+  }
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+  }
+
+  /* transcript */
+  .transcript-body { padding: 6px 22px 26px; }
+  .t-meta {
+    display: flex; gap: 14px; align-items: center;
+    padding: 12px 22px 10px;
+    font-size: 12px; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+
+  /* speakers */
+  #panel-speakers { flex: none; }
+  .spk-list { max-height: 236px; overflow-y: auto; }
+  .spk-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 14px;
+  }
+  .spk-row + .spk-row { border-top: 1px solid var(--border); }
+  .spk-row .name { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; }
+  .spk-row .name input {
+    width: 100%; border: 0; background: transparent; color: inherit;
+    font: inherit; padding: 2px 4px; margin-left: -4px; border-radius: 4px;
+  }
+  .spk-row .name input:focus { outline: 2px solid var(--accent); background: var(--surface); }
+  .spk-row .conf { font: 11.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+  .spk-row .conf.low { color: var(--warn); }
+  .spk-foot {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted);
+    flex: none;
+  }
+  .remote-hint { display: flex; align-items: center; gap: 6px; }
+  .remote-hint input {
+    width: 44px; text-align: center;
+    padding: 4px; border: 1px solid var(--border-strong);
+    border-radius: var(--r-s); background: var(--surface); color: var(--fg);
+    font: 600 12px/1 var(--font-mono);
+  }
+
+  /* diarization progress substate */
+  .diar-progress { padding: 14px; display: none; flex-direction: column; gap: 12px; }
+  .diar-progress.on { display: flex; }
+  #panel-speakers.working .spk-list,
+  #panel-speakers.working .spk-foot { display: none; }
+
+  /* summary */
+  #panel-summary { flex: 1; min-height: 220px; }
+  .sum-toolbar { display: flex; align-items: center; gap: 8px; flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .sum-toolbar select { flex: 1; }
+  .sum-body { padding: 16px 18px 22px; }
+  .ctx-field { padding: 10px 14px; border-top: 1px solid var(--border); flex: none; }
+  .ctx-field .input { font-size: 12.5px; }
+  .sum-gen { display: none; padding: 24px 18px; text-align: center; color: var(--muted); font-size: 12.5px; }
+  .sum-gen.on { display: block; }
+  #panel-summary.working .sum-body { display: none; }
+</style>
+</head>
+<body data-theme="light">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main">
+    <header class="header">
+      <button class="icon-btn js-show-sidebar" data-tip="Mostrar barra lateral" style="display:none" id="showSb"></button>
+      <div class="crumbs">
+        <span>Setare</span><span class="sep">/</span>
+        <span class="here">2026-07-17 - Alinhamento de arquitetura de providers</span>
+      </div>
+      <div class="grow"></div>
+      <button class="btn small ghost" data-tip="Abrir a pasta desta reunião no Finder">Revelar no Finder</button>
+    </header>
+
+    <div class="zones">
+
+      <!-- ===== Zone 1: transcript ===== -->
+      <section class="panel" aria-label="Transcrição">
+        <div class="t-meta">
+          <span class="mono">1h 12min</span>
+          <span>·</span><span>4 falantes</span>
+          <span>·</span><span>gravada em 17/07/2026 às 09:30</span>
+          <span style="flex:1"></span>
+          <button class="btn small ghost" id="copyTrans">Copiar transcrição</button>
+        </div>
+        <div class="panel-body transcript-body" id="transcript"></div>
+      </section>
+
+      <!-- ===== Zones 2 + 3: rail ===== -->
+      <div class="rail">
+
+        <!-- speakers -->
+        <section class="panel" id="panel-speakers" aria-label="Falantes">
+          <div class="panel-head">
+            <h2>Falantes</h2>
+            <button class="btn small" id="btnDiar">Rediarizar</button>
+          </div>
+          <div class="spk-list" id="spkList"></div>
+          <div class="spk-foot">
+            <span class="remote-hint">Participantes remotos
+              <input id="remoteN" type="text" inputmode="numeric" value="2"
+                data-tip="Ajuda o agrupamento de vozes vindas&#10;do áudio do sistema (uma faixa só)"/>
+            </span>
+            <span style="flex:1"></span>
+            <span class="faint">renomear ensina o registro de vozes</span>
+          </div>
+          <div class="diar-progress" id="diarProg">
+            <div class="stages" id="diarStages"></div>
+            <div class="progress"><i id="diarBar" style="width:0%"></i></div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="btn small ghost" id="diarCancel">Cancelar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- summary -->
+        <section class="panel" id="panel-summary" aria-label="Resumo">
+          <div class="panel-head">
+            <h2>Resumo</h2>
+            <button class="icon-btn" id="copySum" data-tip="Copiar como Markdown">⧉</button>
+            <button class="icon-btn" data-tip="Exportar .md">↧</button>
+          </div>
+          <div class="sum-toolbar">
+            <select class="input" id="tplSel">
+              <option>Reunião padrão</option>
+              <option>Daily Standup</option>
+              <option>Decisões &amp; Ações (personalizado)</option>
+            </select>
+            <button class="btn small primary" id="btnGen">Regenerar</button>
+          </div>
+          <div class="panel-body sum-body">
+            <article class="md" id="sumMd">
+              <h1>Alinhamento de arquitetura de providers</h1>
+              <div class="h1-meta">Gerado com IA local (built-in) · 17/07/2026 10:47 · o título da reunião vem deste H1</div>
+
+              <h2>Resumo</h2>
+              <p>A equipe fechou a arquitetura de providers do resumo: o built-in local continua como padrão, com <strong>map-reduce por blocos de 20 minutos</strong> para reuniões acima de 40 minutos. Provedores externos (Claude, OpenAI, Groq, OpenRouter) e o modo CLI Agent permanecem como escolha explícita do usuário — sem fallback automático.</p>
+
+              <h2>Decisões</h2>
+              <ul>
+                <li>Map-reduce vira o caminho padrão para transcrições longas; consolidação final no mesmo provider.</li>
+                <li>Sem fallback automático entre providers: falhou, mostra o erro e o usuário decide.</li>
+                <li>Nomes de falantes só entram no prompt quando o provider roda localmente.</li>
+              </ul>
+
+              <h2>Ações</h2>
+              <div class="task"><input type="checkbox" checked/><span><span class="owner">Rebeca</span> — medir o map-reduce com a retro de 1h50 e registrar tempos por bloco.</span></div>
+              <div class="task"><input type="checkbox"/><span><span class="owner">Jota</span> — especificar o erro acionável de sessão expirada dos CLIs (codex login).</span></div>
+              <div class="task"><input type="checkbox"/><span><span class="owner">Eduardo</span> — escrever o texto do aviso de privacidade do CLI Agent.</span></div>
+
+              <h2>Próximos passos</h2>
+              <p>Revisar os números do benchmark na quinta e decidir se o built-in vira padrão também para reuniões de mais de duas horas.</p>
+            </article>
+          </div>
+          <div class="sum-gen" id="sumGen">
+            <span class="spinner" style="display:inline-block;vertical-align:-3px;margin-right:8px"></span>
+            Gerando resumo com o modelo local…
+          </div>
+          <div class="ctx-field field">
+            <label for="aiCtx">Contexto para a IA</label>
+            <input class="input" id="aiCtx" placeholder='ex.: "Falante 4 é o cliente; foque nas decisões técnicas"'/>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  MS.init({ active: 'm-prov' });
+
+  const showSb = document.getElementById('showSb');
+  showSb.innerHTML = MS.icons.panel;
+  new MutationObserver(() => {
+    showSb.style.display = document.querySelector('.app').classList.contains('sidebar-hidden') ? '' : 'none';
+  }).observe(document.querySelector('.app'), { attributes: true, attributeFilter: ['class'] });
+
+  /* ---------- speakers ---------- */
+  const SPEAKERS = [
+    { c: 1, name: 'Eduardo', you: true,  conf: 98, samples: 34 },
+    { c: 2, name: 'Rebeca',  you: false, conf: 92, samples: 12 },
+    { c: 3, name: 'Jota',    you: false, conf: 87, samples: 9 },
+    { c: 4, name: 'Falante 4', you: false, conf: 41, samples: 0 }
+  ];
+
+  function confTip(s) {
+    return s.samples
+      ? 'Correspondência de voz: ' + s.conf + '%\n' + s.samples + ' amostras no registro'
+      : 'Voz nova — sem correspondência no registro.\nRenomeie para começar a ensiná-la.';
+  }
+
+  function renderSpeakers() {
+    document.getElementById('spkList').innerHTML = SPEAKERS.map((s, i) =>
+      '<div class="spk-row">' +
+        '<span class="spk" data-c="' + s.c + '" data-tip="' + confTip(s).replace(/\n/g, '&#10;') + '">' +
+          '<span class="spk-dot" style="background:currentColor"></span>' + s.name +
+          (s.you ? '<span class="you">VOCÊ</span>' : '') + '</span>' +
+        '<span class="name"><input value="' + s.name + '" data-i="' + i + '" aria-label="Renomear falante"/></span>' +
+        '<span class="conf' + (s.conf < 60 ? ' low' : '') + '">' + s.conf + '%</span>' +
+      '</div>'
+    ).join('');
+  }
+  renderSpeakers();
+
+  // inline rename teaches the registry — reflect it in transcript chips too
+  document.getElementById('spkList').addEventListener('change', e => {
+    const inp = e.target.closest('input[data-i]');
+    if (!inp) return;
+    const s = SPEAKERS[+inp.dataset.i];
+    const v = inp.value.trim();
+    if (!v) { inp.value = s.name; return; }
+    s.name = v;
+    if (s.conf < 60) { s.conf = 100; s.samples = 1; } // first teaching sample
+    renderSpeakers();
+    renderTranscript();
+  });
+
+  /* ---------- transcript ---------- */
+  const SEG = [
+    [12,  0, 'Bom, vamos começar. A pauta de hoje é fechar a arquitetura de providers do resumo — o que roda local por padrão e o que exige escolha explícita do usuário.'],
+    [31,  1, 'Contexto rápido: o built-in local resolve bem reuniões de até uma hora. O gargalo aparece nas de duas horas ou mais.'],
+    [52,  2, 'É a janela de contexto. Hoje a gente trunca o transcript e o resumo perde exatamente as decisões do fim da reunião.'],
+    [78,  0, 'Exato. A proposta é dividir em blocos de vinte minutos, resumir cada bloco e consolidar no final — map-reduce clássico.'],
+    [103, 1, 'Isso dobra o tempo de geração no built-in. Testei ontem: de 40 segundos foi para 1 minuto e 20 nas reuniões longas.'],
+    [126, 2, 'Aceitável, se o resultado parar de perder as ações. Tempo a gente otimiza depois com cache dos blocos.'],
+    [149, 3, 'Desculpa, o áudio cortou aqui do meu lado — vocês estão falando de fallback automático entre providers?'],
+    [166, 0, 'Não, sem fallback automático. Se o provider configurado falhar, mostramos o erro com uma ação clara e o usuário decide o que fazer.'],
+    [195, 2, 'Isso é importante pela promessa de privacidade: ninguém pode descobrir depois que o transcript foi parar num provider de nuvem por causa de um fallback silencioso.'],
+    [224, 1, 'Fechado. E os nomes dos falantes no prompt? O resumo fica muito melhor com "a Rebeca decidiu" em vez de "Falante 2 decidiu".'],
+    [251, 0, 'Nomes entram no prompt só quando o provider é local — built-in ou Ollama. Para nuvem e CLI Agent, entram apenas se a pessoa ligar a opção nas configurações de diarização.'],
+    [287, 3, 'Do lado do cliente isso resolve a questão de compliance que levantaram semana passada.'],
+    [305, 2, 'Sobre o CLI Agent: precisamos do aviso âmbar bem explícito. Quem roda Codex ou Claude Code está mandando o transcript inteiro para fora da máquina.'],
+    [334, 0, 'Sim, e o erro de sessão expirada precisa dizer literalmente o comando — "execute codex login no terminal" — em vez de um genérico "falha de autenticação".'],
+    [361, 1, 'Assumo o benchmark do map-reduce. Uso a retro de ontem, que tem 1h50, e trago números por bloco na quinta.'],
+    [382, 2, 'Eu especifico os estados de erro dos CLIs: não instalado, sessão expirada e timeout. Cada um com a dica acionável.'],
+    [401, 0, 'Então está fechado: map-reduce como padrão acima de quarenta minutos, sem fallback automático, nomes só em provider local. Revisamos os números na quinta.'],
+    [428, 1, 'Perfeito. Publico os tempos no canal até quarta à noite para todo mundo chegar com os dados lidos.'],
+    [447, 3, 'Obrigado, pessoal. Essa parte de privacidade ficou bem mais clara para apresentar internamente aqui.'],
+    [462, 0, 'Fechamos então. Próxima pauta na quinta é só benchmark — reunião curta, trinta minutos.']
+  ];
+
+  function fmt(t) {
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function renderTranscript() {
+    document.getElementById('transcript').innerHTML = SEG.map(([t, sp, text]) => {
+      const s = SPEAKERS[sp];
+      return '<div class="seg">' +
+        '<span class="ts">' + fmt(t) + '</span>' +
+        '<span class="s-head"><span class="spk" data-c="' + s.c + '" data-tip="' + confTip(s).replace(/\n/g, '&#10;') + '">' + s.name +
+        (s.you ? '<span class="you">VOCÊ</span>' : '') + '</span></span>' +
+        '<p class="s-text">' + text + '</p></div>';
+    }).join('');
+  }
+  renderTranscript();
+
+  document.getElementById('copyTrans').addEventListener('click', function () {
+    const txt = SEG.map(([t, sp, text]) => '[' + fmt(t) + '] ' + SPEAKERS[sp].name + ': ' + text).join('\n');
+    navigator.clipboard && navigator.clipboard.writeText(txt);
+    this.textContent = 'Copiado ✓';
+    setTimeout(() => this.textContent = 'Copiar transcrição', 1600);
+  });
+
+  /* ---------- re-diarization with staged progress ---------- */
+  const STAGES = ['Decodificando áudio', 'Segmentando fala', 'Extraindo embeddings', 'Agrupando vozes', 'Associando ao registro', 'Salvando'];
+  let diarTimer = null;
+
+  function paintStages(idx) {
+    document.getElementById('diarStages').innerHTML = STAGES.map((s, i) =>
+      '<div class="stage ' + (i < idx ? 'done' : i === idx ? 'now' : '') + '">' +
+      '<span class="s-ico">✓</span>' + s + '</div>'
+    ).join('');
+    document.getElementById('diarBar').style.width = Math.round(idx / STAGES.length * 100) + '%';
+  }
+
+  function stopDiar() {
+    clearTimeout(diarTimer);
+    document.getElementById('panel-speakers').classList.remove('working');
+    document.getElementById('diarProg').classList.remove('on');
+    document.getElementById('btnDiar').disabled = false;
+  }
+
+  document.getElementById('btnDiar').addEventListener('click', () => {
+    document.getElementById('panel-speakers').classList.add('working');
+    document.getElementById('diarProg').classList.add('on');
+    document.getElementById('btnDiar').disabled = true;
+    let i = 0;
+    function step() {
+      if (i > STAGES.length) { stopDiar(); renderSpeakers(); renderTranscript(); return; }
+      paintStages(i); i++;
+      diarTimer = setTimeout(step, i === 4 ? 1600 : 850);
+    }
+    step();
+  });
+  document.getElementById('diarCancel').addEventListener('click', stopDiar);
+
+  /* ---------- summary regenerate ---------- */
+  document.getElementById('btnGen').addEventListener('click', () => {
+    const p = document.getElementById('panel-summary');
+    p.classList.add('working');
+    document.getElementById('sumGen').classList.add('on');
+    setTimeout(() => {
+      p.classList.remove('working');
+      document.getElementById('sumGen').classList.remove('on');
+    }, 2800);
+  });
+
+  document.getElementById('copySum').addEventListener('click', function () {
+    navigator.clipboard && navigator.clipboard.writeText(document.getElementById('sumMd').innerText);
+    this.setAttribute('data-tip', 'Copiado ✓');
+    setTimeout(() => this.setAttribute('data-tip', 'Copiar como Markdown'), 1600);
+  });
+</script>
+</body>
+</html>

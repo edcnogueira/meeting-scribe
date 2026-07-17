@@ -1,0 +1,26 @@
+{
+  "kind": "critique-panel",
+  "score": 4,
+  "axes": {
+    "clarity": {
+      "score": 4,
+      "notes": "Each frame has one hero (transcript / recording column / settings section). Empty and error states explain themselves with the next action inline (codex login, participantes remotos)."
+    },
+    "hierarchy": {
+      "score": 4,
+      "notes": "Chrome recedes: hairline borders, no shadows outside menus/modals. The 190-speaker list is height-capped so the degenerate state never outranks the transcript."
+    },
+    "typography": {
+      "score": 4,
+      "notes": "SF system stack (native to the macOS webview), tabular mono timestamps, 68ch reading width, real markdown care in the summary (H1 + uppercase section labels)."
+    },
+    "motion": {
+      "score": 4,
+      "notes": "One flourish per state: pulsing rec dot, staged diarization spinner, segment fade-in on the live feed. No decorative animation elsewhere."
+    },
+    "brand": {
+      "score": 5,
+      "notes": "Privacy promise carried in copy and structure: 'roda 100% no dispositivo', amber cloud badges, biometric-wipe modal, no telemetry/account/cloud UI anywhere. Calm teal accent, coral (not red) recording."
+    }
+  }
+}

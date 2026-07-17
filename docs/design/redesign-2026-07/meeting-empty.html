@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meeting Scribe — Gravação de 17/07/2026 14:02</title>
+<link rel="stylesheet" href="css/tokens.css"/>
+<link rel="stylesheet" href="css/app.css"/>
+<style>
+  .zones {
+    flex: 1; min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 384px;
+    gap: 14px;
+    padding: 14px 16px 16px;
+  }
+  .rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+
+  .transcript-body { padding: 6px 22px 26px; }
+  .t-meta {
+    display: flex; gap: 14px; align-items: center;
+    padding: 12px 22px 10px;
+    font-size: 12px; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+
+  #panel-speakers { flex: none; }
+  .spk-list { max-height: 196px; overflow-y: auto; }
+  .spk-row { display: flex; align-items: center; gap: 9px; padding: 7px 14px; }
+  .spk-row + .spk-row { border-top: 1px solid var(--border); }
+  .spk-row .name { flex: 1; font-weight: 600; font-size: 13px; }
+  .spk-row .conf { font: 11.5px/1 var(--font-mono); color: var(--muted); }
+  .spk-foot {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted); flex: none;
+  }
+  .remote-hint { display: flex; align-items: center; gap: 6px; }
+  .remote-hint input {
+    width: 44px; text-align: center; padding: 4px;
+    border: 1px solid var(--border-strong); border-radius: var(--r-s);
+    background: var(--surface); color: var(--fg);
+    font: 600 12px/1 var(--font-mono);
+  }
+  .remote-hint input.attention { outline: 2px solid var(--warn); outline-offset: 1px; }
+
+  .diar-progress { padding: 14px; display: none; flex-direction: column; gap: 12px; }
+  .diar-progress.on { display: flex; }
+  .pad-banner { padding: 10px 12px 0; }
+
+  #panel-summary { flex: 1; min-height: 240px; }
+  .sum-toolbar { display: flex; align-items: center; gap: 8px; flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .sum-toolbar select { flex: 1; }
+  .sum-body { padding: 16px 18px 22px; }
+  .ctx-field { padding: 10px 14px; border-top: 1px solid var(--border); flex: none; }
+  .sum-state { padding: 18px; display: none; }
+  .sum-state.on { display: block; }
+  .sum-state.on.empty { display: flex; }
+  .code-hint {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: var(--r-s);
+    background: var(--surface-2);
+    font: 12px/1.4 var(--font-mono);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body data-theme="light">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main">
+    <header class="header">
+      <button class="icon-btn js-show-sidebar" data-tip="Mostrar barra lateral" style="display:none" id="showSb"></button>
+      <div class="crumbs">
+        <span>Sem pasta</span><span class="sep">/</span>
+        <span class="here" id="hdrTitle" style="font-style:italic;font-weight:500;color:var(--muted)">Gravação de 17/07/2026 14:02</span>
+        <span class="badge warn" id="hdrPending" data-tip="O título definitivo vem do H1 do primeiro resumo">aguardando resumo</span>
+      </div>
+      <div class="grow"></div>
+      <button class="btn small ghost">Revelar no Finder</button>
+    </header>
+
+    <div class="zones">
+
+      <!-- transcript: transcribed, not diarized -->
+      <section class="panel" aria-label="Transcrição">
+        <div class="t-meta">
+          <span class="mono">48min</span>
+          <span>·</span><span id="metaSpk">falantes não identificados</span>
+          <span>·</span><span>gravada em 17/07/2026 às 14:02</span>
+          <span style="flex:1"></span>
+          <button class="btn small ghost">Copiar transcrição</button>
+        </div>
+        <div class="panel-body transcript-body" id="transcript"></div>
+      </section>
+
+      <div class="rail">
+
+        <!-- speakers: empty → progress → degenerate -->
+        <section class="panel" id="panel-speakers" aria-label="Falantes">
+          <div class="panel-head">
+            <h2>Falantes</h2>
+            <button class="btn small primary" id="btnDiar" style="display:none">Rediarizar</button>
+          </div>
+
+          <div class="pad-banner" id="degWrap" style="display:none">
+            <div class="banner warn">
+              <span class="b-ico">⚠</span>
+              <div class="b-body">
+                <strong>190 falantes detectados — resultado improvável.</strong><br/>
+                Vozes vindas do áudio do sistema chegam numa faixa única e podem fragmentar o
+                agrupamento. Informe quantos <strong>participantes remotos</strong> havia na chamada
+                e rediarize.
+                <div class="b-actions">
+                  <button class="btn small" id="fixHint">Informar participantes</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="empty" id="spkEmpty">
+            <span class="e-ico">
+              <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4" stroke="currentColor" stroke-width="1.2"/><path d="M3.2 7.6a4.8 4.8 0 009.6 0M8 12.4v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            </span>
+            <h3>Ninguém foi identificado ainda</h3>
+            <p>A diarização roda no seu Mac e separa quem disse o quê. Vozes conhecidas do registro são reconhecidas automaticamente.</p>
+            <button class="btn primary" id="btnDiarFirst">Identificar falantes</button>
+          </div>
+
+          <div class="spk-list" id="spkList" style="display:none"></div>
+
+          <div class="spk-foot">
+            <span class="remote-hint">Participantes remotos
+              <input id="remoteN" type="text" inputmode="numeric" value=""
+                placeholder="?" data-tip="Quantas pessoas estavam do outro&#10;lado da chamada (áudio do sistema)"/>
+            </span>
+            <span style="flex:1"></span>
+            <span class="faint">roda 100% no dispositivo</span>
+          </div>
+
+          <div class="diar-progress" id="diarProg">
+            <div class="stages" id="diarStages"></div>
+            <div class="progress"><i id="diarBar" style="width:0%"></i></div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="btn small ghost" id="diarCancel">Cancelar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- summary: empty → generating → CLI error → success -->
+        <section class="panel" id="panel-summary" aria-label="Resumo">
+          <div class="panel-head">
+            <h2>Resumo</h2>
+            <button class="icon-btn" data-tip="Copiar como Markdown">⧉</button>
+            <button class="icon-btn" data-tip="Exportar .md">↧</button>
+          </div>
+          <div class="sum-toolbar">
+            <select class="input" id="tplSel">
+              <option>Reunião padrão</option>
+              <option selected>Daily Standup</option>
+              <option>Decisões &amp; Ações (personalizado)</option>
+            </select>
+          </div>
+
+          <div class="panel-body">
+            <div class="sum-state on empty" id="sumEmpty">
+              <span class="e-ico">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5.6 5.5h4.8M5.6 8h4.8M5.6 10.5h2.8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+              </span>
+              <h3>Nenhum resumo ainda</h3>
+              <p>O primeiro resumo também dá o título definitivo à reunião, a partir do H1.</p>
+              <button class="btn primary" id="btnGen">Gerar resumo</button>
+            </div>
+
+            <div class="sum-state" id="sumWorking">
+              <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12.5px">
+                <span class="spinner"></span> <span id="workLabel">Gerando com CLI Agent (codex)…</span>
+              </div>
+              <div class="progress indeterminate" style="margin-top:12px"><i></i></div>
+            </div>
+
+            <div class="sum-state" id="sumError">
+              <div class="banner danger">
+                <span class="b-ico">✕</span>
+                <div class="b-body">
+                  <strong>A sessão do Codex CLI expirou.</strong><br/>
+                  O provider CLI Agent depende do login da sua assinatura. Renove a sessão no terminal e tente de novo:
+                  <div class="code-hint">$ codex login</div>
+                  <div class="b-actions">
+                    <button class="btn small" id="btnRetry">Tentar novamente</button>
+                    <a class="btn small ghost" href="settings.html">Trocar provider</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sum-state sum-body" id="sumDone">
+              <article class="md">
+                <h1>Retro do sprint 14</h1>
+                <div class="h1-meta">Gerado com CLI Agent (codex) · 17/07/2026 14:58 · título aplicado à reunião</div>
+                <h2>O que foi bem</h2>
+                <ul>
+                  <li>Migração do fluxo de OTP entregue sem incidentes; rollback não foi necessário.</li>
+                  <li>Pareamento diário reduziu o retrabalho de revisão pela metade.</li>
+                </ul>
+                <h2>O que travou</h2>
+                <ul>
+                  <li>Ambiente de homologação instável na terça atrasou os testes funcionais.</li>
+                  <li>Dependência do time de infra para o certificado ficou sem dono claro.</li>
+                </ul>
+                <h2>Ações</h2>
+                <div class="task"><input type="checkbox"/><span><span class="owner">Rebeca</span> — abrir runbook do ambiente de homologação até sexta.</span></div>
+                <div class="task"><input type="checkbox"/><span><span class="owner">Jota</span> — assumir a renovação do certificado com a infra.</span></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="ctx-field field">
+            <label for="aiCtx">Contexto para a IA</label>
+            <input class="input" id="aiCtx" value="É a retro do sprint 14 do time da Setare"/>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  MS.init({ active: 'm-retro' });
+
+  const showSb = document.getElementById('showSb');
+  showSb.innerHTML = MS.icons.panel;
+  new MutationObserver(() => {
+    showSb.style.display = document.querySelector('.app').classList.contains('sidebar-hidden') ? '' : 'none';
+  }).observe(document.querySelector('.app'), { attributes: true, attributeFilter: ['class'] });
+
+  /* transcript without speakers */
+  const SEG = [
+    [8,   'Vamos começar a retro. Formato de sempre: o que foi bem, o que travou e ações para o próximo sprint.'],
+    [24,  'Começo eu: a migração do OTP saiu sem incidente nenhum. Nem precisamos do plano de rollback.'],
+    [47,  'E o pareamento diário funcionou de verdade — o retrabalho de code review caiu bastante essa semana.'],
+    [69,  'No lado ruim, homologação ficou fora do ar quase a terça inteira. Perdi meio dia de testes funcionais.'],
+    [95,  'Isso e o certificado: ninguém era dono da renovação, ficou pingue-pongue com a infra a semana toda.'],
+    [121, 'Anotado. Proponho duas ações: runbook de homologação e um dono único para o certificado.'],
+    [143, 'Assumo o runbook. Consigo fechar até sexta com os passos de restart e os contatos.'],
+    [160, 'Fico com o certificado então. Marco a conversa com a infra ainda hoje.'],
+    [178, 'Fechado. Última coisa: alguém tem tema para levar para a revisão de quinta?'],
+    [196, 'Só os números do benchmark de resumo, mas isso já está na pauta da outra reunião.']
+  ];
+  function fmt(t) {
+    const m = Math.floor(t / 60), s = t % 60;
+    return '00:' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  document.getElementById('transcript').innerHTML = SEG.map(([t, text]) =>
+    '<div class="seg no-speaker"><span class="ts">' + fmt(t) + '</span><p class="s-text">' + text + '</p></div>'
+  ).join('');
+
+  /* ---------- diarization: empty → stages → degenerate (190) ---------- */
+  const STAGES = ['Decodificando áudio', 'Segmentando fala', 'Extraindo embeddings', 'Agrupando vozes', 'Associando ao registro', 'Salvando'];
+  let diarTimer = null;
+
+  function paintStages(idx) {
+    document.getElementById('diarStages').innerHTML = STAGES.map((s, i) =>
+      '<div class="stage ' + (i < idx ? 'done' : i === idx ? 'now' : '') + '">' +
+      '<span class="s-ico">✓</span>' + s + '</div>'
+    ).join('');
+    document.getElementById('diarBar').style.width = Math.round(idx / STAGES.length * 100) + '%';
+  }
+
+  function showProgress(on) {
+    document.getElementById('diarProg').classList.toggle('on', on);
+    document.getElementById('spkEmpty').style.display = on ? 'none' : '';
+  }
+
+  function degenerateResult() {
+    // height-capped, scrollable — layout never breaks even with 190 rows
+    const rows = [];
+    for (let i = 1; i <= 190; i++) {
+      rows.push('<div class="spk-row">' +
+        '<span class="spk" data-c="' + ((i - 1) % 12 + 1) + '">Falante ' + i + '</span>' +
+        '<span class="name"></span><span class="conf low">—</span></div>');
+    }
+    document.getElementById('spkList').innerHTML = rows.join('');
+    document.getElementById('spkList').style.display = '';
+    document.getElementById('spkEmpty').style.display = 'none';
+    document.getElementById('degWrap').style.display = '';
+    document.getElementById('btnDiar').style.display = '';
+    document.getElementById('metaSpk').textContent = '190 falantes (?)';
+  }
+
+  function runDiar() {
+    showProgress(true);
+    document.getElementById('degWrap').style.display = 'none';
+    document.getElementById('spkList').style.display = 'none';
+    let i = 0;
+    (function step() {
+      if (i > STAGES.length) { showProgress(false); degenerateResult(); return; }
+      paintStages(i); i++;
+      diarTimer = setTimeout(step, i === 4 ? 1500 : 800);
+    })();
+  }
+
+  document.getElementById('btnDiarFirst').addEventListener('click', runDiar);
+  document.getElementById('btnDiar').addEventListener('click', runDiar);
+  document.getElementById('diarCancel').addEventListener('click', () => {
+    clearTimeout(diarTimer);
+    showProgress(false);
+    if (document.getElementById('spkList').innerHTML) {
+      document.getElementById('spkList').style.display = '';
+      document.getElementById('degWrap').style.display = '';
+      document.getElementById('spkEmpty').style.display = 'none';
+    }
+  });
+  document.getElementById('fixHint').addEventListener('click', () => {
+    const inp = document.getElementById('remoteN');
+    inp.classList.add('attention');
+    inp.focus();
+    setTimeout(() => inp.classList.remove('attention'), 2400);
+  });
+
+  /* ---------- summary: empty → generating → CLI error → retry → success ---------- */
+  const SUM_STATES = ['sumEmpty', 'sumWorking', 'sumError', 'sumDone'];
+  function sumGo(id) {
+    SUM_STATES.forEach(s => document.getElementById(s).classList.toggle('on', s === id));
+  }
+  let attempt = 0;
+
+  function generate() {
+    attempt++;
+    sumGo('sumWorking');
+    setTimeout(() => {
+      if (attempt === 1) {
+        sumGo('sumError'); // first run: CLI session expired
+      } else {
+        sumGo('sumDone');
+        // the summary's H1 becomes the meeting title
+        const t = document.getElementById('hdrTitle');
+        t.textContent = '2026-07-17 - Retro do sprint 14';
+        t.style.fontStyle = 'normal'; t.style.fontWeight = '600'; t.style.color = 'var(--fg)';
+        document.getElementById('hdrPending').remove();
+        document.title = 'Meeting Scribe — Retro do sprint 14';
+        const side = document.querySelector('.tree-item[data-id="m-retro"] .t-name');
+        if (side) {
+          side.textContent = '2026-07-17 - Retro do sprint 14';
+          side.classList.remove('placeholder');
+          const dot = side.parentElement.querySelector('.pending-dot');
+          if (dot) dot.remove();
+        }
+      }
+    }, 2600);
+  }
+  document.getElementById('btnGen').addEventListener('click', generate);
+  document.getElementById('btnRetry').addEventListener('click', generate);
+</script>
+</body>
+</html>
