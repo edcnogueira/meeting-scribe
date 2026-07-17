@@ -24,6 +24,7 @@ pub mod recording_commands;
 pub mod recording_preferences;
 pub mod recording_saver;
 pub mod incremental_saver;  // NEW: Incremental audio saving with checkpoints
+pub mod track_saver;        // D2: separate mic/system tracks (mic.mp4 + system.mp4)
 pub mod level_monitor;
 pub mod simple_level_monitor;
 pub mod buffer_pool;

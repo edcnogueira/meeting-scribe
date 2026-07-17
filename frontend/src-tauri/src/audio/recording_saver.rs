@@ -7,9 +7,10 @@ use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 
-use super::recording_state::AudioChunk;
+use super::recording_state::{AudioChunk, DeviceType};
 use super::audio_processing::create_meeting_folder;
 use super::incremental_saver::IncrementalAudioSaver;
+use super::track_saver::{should_save_separate_tracks, SeparateTrackSaver};
 
 /// Structured transcript segment for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,12 @@ pub struct MeetingMetadata {
     pub transcript_file: String,
     pub sample_rate: u32,
     pub status: String,  // "recording", "completed", "error"
+    // D2: separate per-device tracks (additive, optional). Absent for meetings
+    // recorded before this feature and for imported audio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mic_audio_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_audio_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +56,9 @@ pub struct DeviceInfo {
 /// New recording saver using incremental saving strategy
 pub struct RecordingSaver {
     incremental_saver: Option<Arc<AsyncMutex<IncrementalAudioSaver>>>,
+    // D2: separate mic/system track saver (None when the flag is off or audio
+    // saving is disabled). Runs alongside the mixed saver above.
+    track_saver: Option<Arc<AsyncMutex<SeparateTrackSaver>>>,
     meeting_folder: Option<PathBuf>,
     meeting_name: Option<String>,
     metadata: Option<MeetingMetadata>,
@@ -61,6 +71,7 @@ impl RecordingSaver {
     pub fn new() -> Self {
         Self {
             incremental_saver: None,
+            track_saver: None,
             meeting_folder: None,
             meeting_name: None,
             metadata: None,
@@ -222,6 +233,72 @@ impl RecordingSaver {
         sender
     }
 
+    /// Start accumulation of the separate mic/system tracks (D2).
+    ///
+    /// Returns a sender for pre-mix per-device windows `(DeviceType, samples)`
+    /// that the pipeline routes into `mic.mp4` / `system.mp4`. Returns `None`
+    /// (tracks disabled) when:
+    /// * the "save separate tracks" flag is off, or
+    /// * audio saving is off (no mixed `IncrementalAudioSaver`, hence no folder
+    ///   with checkpoints — separate tracks only make sense alongside a save).
+    ///
+    /// Must be called AFTER [`start_accumulation`](Self::start_accumulation) so
+    /// the meeting folder already exists.
+    pub fn start_track_accumulation(&mut self) -> Option<mpsc::UnboundedSender<(DeviceType, Vec<f32>)>> {
+        if !should_save_separate_tracks() {
+            info!("Separate mic/system tracks disabled - skipping track accumulation");
+            return None;
+        }
+
+        // Only when audio is actually being saved (mixed saver + folder present).
+        if self.incremental_saver.is_none() {
+            info!("Audio saving disabled - skipping separate track accumulation");
+            return None;
+        }
+
+        let meeting_folder = match &self.meeting_folder {
+            Some(folder) => folder.clone(),
+            None => {
+                warn!("No meeting folder available - skipping separate track accumulation");
+                return None;
+            }
+        };
+
+        let track_saver = match SeparateTrackSaver::new(meeting_folder, 48000) {
+            Ok(saver) => Arc::new(AsyncMutex::new(saver)),
+            Err(e) => {
+                error!("Failed to initialize separate track saver: {}", e);
+                return None;
+            }
+        };
+        self.track_saver = Some(track_saver.clone());
+
+        let (sender, mut receiver) = mpsc::unbounded_channel::<(DeviceType, Vec<f32>)>();
+        let is_saving_clone = self.is_saving.clone();
+
+        tokio::spawn(async move {
+            info!("Separate track accumulation task started");
+            while let Some((device_type, samples)) = receiver.recv().await {
+                let should_continue = is_saving_clone
+                    .lock()
+                    .map(|guard| *guard)
+                    .unwrap_or(false);
+                if !should_continue {
+                    break;
+                }
+
+                let mut guard = track_saver.lock().await;
+                if let Err(e) = guard.add_window(device_type, &samples) {
+                    error!("Failed to add window to separate track saver: {}", e);
+                }
+            }
+            info!("Separate track accumulation task ended");
+        });
+
+        info!("✅ Separate mic/system track accumulation initialized");
+        Some(sender)
+    }
+
     /// Initialize meeting folder structure and metadata
     ///
     /// # Arguments
@@ -259,6 +336,8 @@ impl RecordingSaver {
             transcript_file: "transcripts.json".to_string(),
             sample_rate: 48000,
             status: "recording".to_string(),
+            mic_audio_file: None,       // D2: filled in on finalize if tracks saved
+            system_audio_file: None,    // D2: filled in on finalize if tracks saved
         };
 
         // Write initial metadata.json
@@ -397,6 +476,30 @@ impl RecordingSaver {
             return Err("No incremental saver initialized".to_string());
         };
 
+        // D2: finalize the separate mic/system tracks (best-effort, additive).
+        // A failure here must NOT fail the recording - the mixed audio.mp4 is the
+        // source of truth and is already saved above.
+        let track_paths = if let Some(track_saver_arc) = &self.track_saver {
+            let mut track_saver = track_saver_arc.lock().await;
+            match track_saver.finalize().await {
+                Ok(paths) => {
+                    info!(
+                        "✅ Finalized separate tracks - mic: {:?}, system: {:?}",
+                        paths.mic, paths.system
+                    );
+                    paths
+                }
+                Err(e) => {
+                    warn!("Failed to finalize separate tracks (non-fatal): {}", e);
+                    Default::default()
+                }
+            }
+        } else {
+            Default::default()
+        };
+        let mic_track_path = track_paths.mic.map(|p| p.to_string_lossy().to_string());
+        let system_track_path = track_paths.system.map(|p| p.to_string_lossy().to_string());
+
         // Save final transcripts.json with validation
         if let Some(folder) = &self.meeting_folder {
             if let Err(e) = self.write_transcripts_json(folder) {
@@ -417,6 +520,13 @@ impl RecordingSaver {
         if let (Some(folder), Some(mut metadata)) = (&self.meeting_folder, self.metadata.clone()) {
             metadata.status = "completed".to_string();
             metadata.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            // D2: persist separate-track paths (relative names) when available.
+            metadata.mic_audio_file = mic_track_path
+                .as_ref()
+                .map(|_| "mic.mp4".to_string());
+            metadata.system_audio_file = system_track_path
+                .as_ref()
+                .map(|_| "system.mp4".to_string());
 
             // Use actual recording duration from RecordingState (more accurate than transcript segments)
             // Falls back to last transcript segment if duration not provided
@@ -443,7 +553,10 @@ impl RecordingSaver {
                 .map(|f| f.join("transcripts.json").to_string_lossy().to_string()),
             "meeting_name": self.meeting_name,
             "meeting_folder": self.meeting_folder.as_ref()
-                .map(|f| f.to_string_lossy().to_string())
+                .map(|f| f.to_string_lossy().to_string()),
+            // D2: absolute paths to the separate tracks (null when not saved).
+            "mic_audio_file": mic_track_path,
+            "system_audio_file": system_track_path
         });
 
         if let Err(e) = app.emit("recording-saved", &save_event) {

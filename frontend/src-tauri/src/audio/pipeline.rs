@@ -694,6 +694,9 @@ pub struct AudioPipeline {
     mixer: ProfessionalAudioMixer,
     // Recording sender for pre-mixed audio
     recording_sender_for_mixed: Option<mpsc::UnboundedSender<AudioChunk>>,
+    // D2: routes pre-mix per-device windows to the separate-track saver
+    // (mic.mp4 / system.mp4). None when the "save separate tracks" flag is off.
+    track_sender: Option<mpsc::UnboundedSender<(DeviceType, Vec<f32>)>>,
 }
 
 impl AudioPipeline {
@@ -760,6 +763,7 @@ impl AudioPipeline {
             ring_buffer,
             mixer,
             recording_sender_for_mixed: None,  // Will be set by manager
+            track_sender: None,  // D2: set by manager when separate tracks enabled
         }
     }
 
@@ -824,6 +828,16 @@ impl AudioPipeline {
                         if let Some((mic_window, sys_window)) = self.ring_buffer.extract_window() {
                             // Simple mixing without aggressive ducking
                             let mixed_clean = self.mixer.mix_window(&mic_window, &sys_window);
+
+                            // D2: route the per-device windows to the separate-track
+                            // saver BEFORE the mix erases their origin. Both windows are
+                            // fixed-length (zero-padded by extract_window), so mic.mp4 and
+                            // system.mp4 stay aligned with each other and with audio.mp4.
+                            // Moved (not cloned) — the windows are unused after mixing.
+                            if let Some(ref ts) = self.track_sender {
+                                let _ = ts.send((DeviceType::Microphone, mic_window));
+                                let _ = ts.send((DeviceType::System, sys_window));
+                            }
 
                             // NO POST-GAIN NEEDED: Microphone already normalized by EBU R128 to -23 LUFS
                             // This is broadcast-standard loudness (Netflix/YouTube/Spotify level)
@@ -962,6 +976,7 @@ impl AudioPipelineManager {
         target_chunk_duration_ms: u32,
         sample_rate: u32,
         recording_sender: Option<mpsc::UnboundedSender<AudioChunk>>,
+        track_sender: Option<mpsc::UnboundedSender<(DeviceType, Vec<f32>)>>,
         mic_device_name: String,
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
@@ -994,6 +1009,9 @@ impl AudioPipelineManager {
         // CRITICAL FIX: Connect recording sender to receive pre-mixed audio
         // This ensures both mic AND system audio are captured in recordings
         pipeline.recording_sender_for_mixed = recording_sender;
+
+        // D2: connect the separate-track saver (None when the flag is off)
+        pipeline.track_sender = track_sender;
 
         let handle = tokio::spawn(async move {
             pipeline.run().await

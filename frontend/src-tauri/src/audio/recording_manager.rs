@@ -76,6 +76,11 @@ impl RecordingManager {
         // Pass auto_save to control whether audio checkpoints are created
         let recording_sender = self.recording_saver.start_accumulation(auto_save);
 
+        // D2: start separate mic/system track accumulation (after start_accumulation
+        // so the meeting folder exists). Returns None when the feature flag is off
+        // or audio saving is disabled - the mixed audio.mp4 path is unaffected either way.
+        let track_sender = self.recording_saver.start_track_accumulation();
+
         // Start recording state first
         self.state.start_recording()?;
 
@@ -112,6 +117,7 @@ impl RecordingManager {
             0, // Ignored - using dynamic sizing internally
             48000, // 48kHz sample rate
             Some(recording_sender), // CRITICAL: Pass recording sender to receive pre-mixed audio
+            track_sender,           // D2: routes pre-mix per-device windows to mic.mp4 / system.mp4
             mic_name,
             mic_kind,
             sys_name,
