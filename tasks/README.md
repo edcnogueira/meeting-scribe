@@ -20,6 +20,6 @@ Plano: `WIKI/personal/Meetily/Planos/Plano - Provedor CLI para Resumos.md`. Resu
 
 - [x] [C1 — Spike: validar as CLIs de IA (codex/claude/gemini)](cli-summary/C1-spike-clis.md)
 - [x] [C2 — Backend: provedor `cli-agent` (Rust)](cli-summary/C2-backend-provedor-cli.md)
-- [ ] [C3 — UI de settings + validação end-to-end com falantes](cli-summary/C3-ui-settings-e-validacao.md)
+- [x] [C3 — UI de settings + validação end-to-end com falantes](cli-summary/C3-ui-settings-e-validacao.md) — implementado; pendente validação manual E2E (reunião real diarizada)
 
-Ordem: C1 → C2 → C3 (sequencial; branch `enhance/cli-summary-provider` a partir de `main`).
+Ordem: C1 → C2 → C3 (sequencial). Executado em 2026-07-17 (PRs #1–#3, squash na `main`).
