@@ -848,3 +848,148 @@ body[data-theme] {
   height: 24px;
   font-size: 12.5px;
 }
+
+/* ============================================================
+   R3 — Meeting details screen (transcript · speakers · summary)
+
+   Faithful port of the per-screen <style> blocks in
+   docs/design/redesign-2026-07/meeting.html and meeting-empty.html.
+   Base component classes (.panel, .spk, .md, .empty, .banner,
+   .stages, .progress, …) already live above; these are the
+   layout wrappers specific to the meeting screen.
+   ============================================================ */
+
+.zones {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 384px;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+/* ---- transcript panel ---- */
+.transcript-body { padding: 6px 22px 26px; }
+.t-meta {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 22px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.t-meta .grow { flex: 1; }
+
+/* ---- speakers panel ---- */
+#panel-speakers { flex: none; }
+.spk-list { max-height: 236px; overflow-y: auto; }
+.spk-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+}
+.spk-row + .spk-row { border-top: 1px solid var(--border); }
+.spk-row .name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+}
+.spk-row .name input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border-radius: 4px;
+}
+.spk-row .name input:focus { outline: 2px solid var(--accent); background: var(--surface); }
+.spk-row .conf {
+  font: 11.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.spk-row .conf.low { color: var(--warn); }
+.spk-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  flex: none;
+}
+.spk-foot .grow { flex: 1; }
+.remote-hint { display: flex; align-items: center; gap: 6px; }
+.remote-hint input {
+  width: 44px;
+  text-align: center;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-s);
+  background: var(--surface);
+  color: var(--fg);
+  font: 600 12px/1 var(--font-mono);
+}
+.remote-hint input.attention { outline: 2px solid var(--warn); outline-offset: 1px; }
+
+/* diarization progress substate */
+.diar-progress {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diar-progress .diar-actions { display: flex; justify-content: flex-end; }
+.pad-banner { padding: 10px 12px 0; }
+
+/* ---- summary panel ---- */
+#panel-summary { flex: 1; min-height: 220px; }
+.sum-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sum-toolbar select { flex: 1; }
+.sum-body { padding: 16px 18px 22px; }
+.ctx-field {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  flex: none;
+}
+.ctx-field .input { font-size: 12.5px; }
+.sum-gen {
+  padding: 24px 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.sum-state { padding: 18px; }
+.sum-state.empty { display: flex; }
+.code-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-s);
+  background: var(--surface-2);
+  font: 12px/1.4 var(--font-mono);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
