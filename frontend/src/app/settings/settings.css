@@ -1,0 +1,86 @@
+/*
+ * Settings screen — page-specific styles (task R4).
+ * Ported 1:1 from docs/design/redesign-2026-07/settings.html inline <style>.
+ * Scoped under .set-wrap to avoid colliding with global class names.
+ */
+
+.set-wrap { flex: 1; min-height: 0; display: flex; }
+
+.set-wrap .set-nav {
+  width: 208px; flex: none;
+  padding: 18px 10px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.set-wrap .set-nav button {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border: 0; border-radius: var(--r-s);
+  background: transparent; color: var(--muted);
+  font: 500 13px/1.3 var(--font-ui);
+  text-align: left; cursor: pointer;
+}
+.set-wrap .set-nav button:hover { background: var(--hover); }
+.set-wrap .set-nav button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+
+.set-wrap .set-main { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 34px 48px; }
+.set-wrap .set-col { width: min(640px, 100%); display: flex; flex-direction: column; gap: 16px; }
+.set-wrap .set-col h1 { font: 650 19px/1.25 var(--font-display); letter-spacing: -0.01em; }
+.set-wrap .set-col .lede { color: var(--muted); font-size: 13px; margin-top: -8px; }
+
+.set-wrap .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-l);
+}
+.set-wrap .card-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 15px;
+}
+.set-wrap .card-row + .card-row { border-top: 1px solid var(--border); }
+.set-wrap .card-row .info { flex: 1; min-width: 0; }
+.set-wrap .card-row .info b { display: block; font: 600 13px/1.35 var(--font-ui); }
+.set-wrap .card-row .info span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.set-wrap .card-row .mono-meta { font: 11.5px/1 var(--font-mono); color: var(--faint); }
+
+.set-wrap .sect { display: none; }
+.set-wrap .sect.on { display: block; }
+
+/* provider rows */
+.set-wrap .prov-radio { accent-color: var(--accent); width: 15px; height: 15px; flex: none; }
+.set-wrap .prov-detail {
+  display: none;
+  padding: 14px 15px 16px 42px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 0 0 var(--r-l) var(--r-l);
+}
+.set-wrap .prov-detail.on { display: block; }
+.set-wrap .cli-preset {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+.set-wrap .cli-preset input[type="radio"] { accent-color: var(--accent); }
+.set-wrap .cli-preset b { font: 600 13px/1.3 var(--font-ui); }
+.set-wrap .cli-preset .cmd { font: 11.5px/1.4 var(--font-mono); color: var(--muted); }
+.set-wrap .cli-preset .grow { flex: 1; }
+.set-wrap .test-out { margin-top: 10px; display: none; }
+.set-wrap .test-out.on { display: block; }
+
+/* registry */
+.set-wrap .reg-row .actions { display: flex; gap: 4px; }
+.set-wrap .samples-bar { display: flex; gap: 2px; margin-top: 4px; }
+.set-wrap .samples-bar i { width: 5px; height: 8px; border-radius: 2px; background: var(--accent); opacity: 0.75; }
+.set-wrap .samples-bar i.dim { background: var(--border-strong); }
+
+.set-wrap .path-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-s);
+  background: var(--surface);
+  font: 12.5px/1.3 var(--font-mono);
+}
