@@ -1,22 +1,71 @@
-"use client";
-import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Summary, SummaryResponse } from '@/types';
-import { useSidebar } from '@/components/Sidebar/SidebarProvider';
-import Analytics from '@/lib/analytics';
-import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'sonner';
-import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
-import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
-import { ModelConfig } from '@/components/ModelSettingsModal';
+'use client';
 
-// Custom hooks
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Summary, TranscriptSegmentData } from '@/types';
+import { useShell } from '@/components/shell/ShellContext';
+import { PanelIcon } from '@/components/shell/icons';
+import Analytics from '@/lib/analytics';
+
+import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
+import { SpeakersPanel } from '@/components/MeetingDetails/SpeakersPanel';
+import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
+import { SpeakerMeta } from '@/components/MeetingDetails/MeetingTranscriptView';
+import { summaryToMarkdown } from '@/components/MeetingDetails/summaryMarkdown';
+
 import { useMeetingData } from '@/hooks/meeting-details/useMeetingData';
 import { useSummaryGeneration } from '@/hooks/meeting-details/useSummaryGeneration';
 import { useTemplates } from '@/hooks/meeting-details/useTemplates';
 import { useCopyOperations } from '@/hooks/meeting-details/useCopyOperations';
 import { useMeetingOperations } from '@/hooks/meeting-details/useMeetingOperations';
+import { useDiarization } from '@/hooks/meeting-details/useDiarization';
 import { useConfig } from '@/contexts/ConfigContext';
+
+interface PageContentProps {
+  meeting: any;
+  summaryData: Summary | null;
+  shouldAutoGenerate?: boolean;
+  onAutoGenerateComplete?: () => void;
+  onMeetingUpdated?: () => Promise<void>;
+  onRefetchTranscripts?: () => Promise<void>;
+  segments?: TranscriptSegmentData[];
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  totalCount?: number;
+  loadedCount?: number;
+  onLoadMore?: () => void;
+}
+
+const AI_CONTEXT_KEY = (id: string) => `ms-ai-context-${id}`;
+
+function formatDuration(seconds: number): string {
+  const total = Math.floor(seconds);
+  if (total <= 0) return '0min';
+  const h = Math.floor(total / 3600);
+  const m = Math.round((total % 3600) / 60);
+  if (h > 0) return `${h}h ${m}min`;
+  return `${m}min`;
+}
+
+function formatRecordedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const date = d.toLocaleDateString('pt-BR');
+  const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `gravada em ${date} às ${time}`;
+}
+
+function formatGeneratedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function folderLabel(path?: string | null): string {
+  if (!path) return 'Sem pasta';
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || 'Sem pasta';
+}
 
 export default function PageContent({
   meeting,
@@ -25,101 +74,50 @@ export default function PageContent({
   onAutoGenerateComplete,
   onMeetingUpdated,
   onRefetchTranscripts,
-  // Pagination props for efficient transcript loading
-  segments,
+  segments = [],
   hasMore,
   isLoadingMore,
   totalCount,
   loadedCount,
   onLoadMore,
-}: {
-  meeting: any;
-  summaryData: Summary | null;
-  shouldAutoGenerate?: boolean;
-  onAutoGenerateComplete?: () => void;
-  onMeetingUpdated?: () => Promise<void>;
-  onRefetchTranscripts?: () => Promise<void>;
-  // Pagination props
-  segments?: any[];
-  hasMore?: boolean;
-  isLoadingMore?: boolean;
-  totalCount?: number;
-  loadedCount?: number;
-  onLoadMore?: () => void;
-}) {
-  console.log('📄 PAGE CONTENT: Initializing with data:', {
-    meetingId: meeting.id,
-    summaryDataKeys: summaryData ? Object.keys(summaryData) : null,
-    transcriptsCount: meeting.transcripts?.length
-  });
+}: PageContentProps) {
+  const router = useRouter();
+  const { sidebarHidden, showSidebar } = useShell();
+  const { modelConfig } = useConfig();
 
-  // State
-  const [customPrompt, setCustomPrompt] = useState<string>('');
-  const [isRecording] = useState(false);
-  const [summaryResponse] = useState<SummaryResponse | null>(null);
-
-  // Ref to store the modal open function from SummaryGeneratorButtonGroup
-  const openModelSettingsRef = useRef<(() => void) | null>(null);
-
-  // Sidebar context
-  const { serverAddress } = useSidebar();
-
-  // Get model config from ConfigContext
-  const { modelConfig, setModelConfig } = useConfig();
-
-  // Custom hooks
   const meetingData = useMeetingData({ meeting, summaryData, onMeetingUpdated });
   const templates = useTemplates();
+  const diar = useDiarization(meeting.id, onRefetchTranscripts);
 
-  // Callback to register the modal open function
-  const handleRegisterModalOpen = (openFn: () => void) => {
-    console.log('📝 Registering modal open function in PageContent');
-    openModelSettingsRef.current = openFn;
-  };
+  const [aiContext, setAiContext] = useState('');
 
-  // Callback to trigger modal open (called from error handler)
-  const handleOpenModelSettings = () => {
-    console.log('🔔 Opening model settings from PageContent');
-    if (openModelSettingsRef.current) {
-      openModelSettingsRef.current();
-    } else {
-      console.warn('⚠️ Modal open function not yet registered');
-    }
-  };
-
-  // Save model config to backend database and sync via event
-  const handleSaveModelConfig = async (config?: ModelConfig) => {
-    if (!config) return;
+  // "Contexto para a IA" persists per meeting and feeds the generation prompt.
+  useEffect(() => {
     try {
-      await invoke('api_save_model_config', {
-        provider: config.provider,
-        model: config.model,
-        whisperModel: config.whisperModel,
-        apiKey: config.apiKey ?? null,
-        ollamaEndpoint: config.ollamaEndpoint ?? null,
-      });
+      setAiContext(window.localStorage.getItem(AI_CONTEXT_KEY(meeting.id)) ?? '');
+    } catch {
+      setAiContext('');
+    }
+  }, [meeting.id]);
 
-      // Emit event so ConfigContext and other listeners stay in sync
-      const { emit } = await import('@tauri-apps/api/event');
-      await emit('model-config-updated', config);
-
-      toast.success('Model settings saved successfully');
-    } catch (error) {
-      console.error('Failed to save model config:', error);
-      toast.error('Failed to save model settings');
+  const handleAiContextChange = (v: string) => {
+    setAiContext(v);
+    try {
+      window.localStorage.setItem(AI_CONTEXT_KEY(meeting.id), v);
+    } catch {
+      /* ignore */
     }
   };
 
   const summaryGeneration = useSummaryGeneration({
     meeting,
     transcripts: meetingData.transcripts,
-    modelConfig: modelConfig,
-    isModelConfigLoading: false, // ConfigContext loads on mount
+    modelConfig,
+    isModelConfigLoading: false,
     selectedTemplate: templates.selectedTemplate,
     onMeetingUpdated,
     updateMeetingTitle: meetingData.updateMeetingTitle,
     setAiSummary: meetingData.setAiSummary,
-    onOpenModelSettings: handleOpenModelSettings,
   });
 
   const copyOperations = useCopyOperations({
@@ -130,104 +128,164 @@ export default function PageContent({
     blockNoteSummaryRef: meetingData.blockNoteSummaryRef,
   });
 
-  const meetingOperations = useMeetingOperations({
-    meeting,
-  });
+  const meetingOperations = useMeetingOperations({ meeting });
 
-  // Track page view
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
   }, []);
 
-  // Auto-generate summary when flag is set
+  // Auto-generate summary when navigated straight from recording.
   useEffect(() => {
     let cancelled = false;
-
-    const autoGenerate = async () => {
+    const run = async () => {
       if (shouldAutoGenerate && meetingData.transcripts.length > 0 && !cancelled) {
-        console.log(`🤖 Auto-generating summary with ${modelConfig.provider}/${modelConfig.model}...`);
-        await summaryGeneration.handleGenerateSummary('');
-
-        // Notify parent that auto-generation is complete (only if not cancelled)
-        if (onAutoGenerateComplete && !cancelled) {
-          onAutoGenerateComplete();
-        }
+        await summaryGeneration.handleGenerateSummary(aiContext);
+        if (onAutoGenerateComplete && !cancelled) onAutoGenerateComplete();
       }
     };
-
-    autoGenerate();
-
-    // Cleanup: cancel if component unmounts or meeting changes
+    run();
     return () => {
       cancelled = true;
     };
-  }, [shouldAutoGenerate, meeting.id]); // Re-run if meeting changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoGenerate, meeting.id]);
+
+  // ---- derived transcript meta ----
+  const durationLabel = useMemo(() => {
+    const last = segments.reduce((max, s) => Math.max(max, s.endTime ?? s.timestamp ?? 0), 0);
+    return formatDuration(last);
+  }, [segments]);
+
+  const speakerCountLabel = useMemo(() => {
+    if (diar.speakers.length === 0) return 'falantes não identificados';
+    if (diar.isDegenerate) return `${diar.speakers.length} falantes (?)`;
+    const n = diar.speakers.length;
+    return `${n} ${n === 1 ? 'falante' : 'falantes'}`;
+  }, [diar.speakers.length, diar.isDegenerate]);
+
+  const recordedAtLabel = useMemo(() => formatRecordedAt(meeting.created_at), [meeting.created_at]);
+
+  const speakerMeta = useMemo(() => {
+    const map = new Map<string, SpeakerMeta>();
+    for (const s of diar.speakers) {
+      map.set(s.display_name, {
+        score: s.score,
+        samples: diar.sampleCountFor(s),
+        isYou: s.is_self,
+      });
+    }
+    return map;
+  }, [diar.speakers, diar.sampleCountFor]);
+
+  // ---- summary ----
+  const markdown = useMemo(
+    () => summaryToMarkdown(meetingData.aiSummary as any, meetingData.meetingTitle),
+    [meetingData.aiSummary, meetingData.meetingTitle]
+  );
+  const hasSummary = !!meetingData.aiSummary && markdown.trim().length > 0;
+  const generatedAtLabel = useMemo(
+    () => formatGeneratedAt(meeting.updated_at || meeting.created_at),
+    [meeting.updated_at, meeting.created_at]
+  );
+
+  const handleExportMarkdown = () => {
+    const md = markdown;
+    if (!md.trim()) return;
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(meetingData.meetingTitle || 'resumo').replace(/[\\/:*?"<>|]/g, '-')}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // ---- header ----
+  const pending = !hasSummary;
+  const titleProvisional = pending;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="flex flex-col h-screen bg-gray-50"
-    >
-      <div className="flex flex-1 overflow-hidden">
+    <>
+      <header className="header">
+        {sidebarHidden && (
+          <button
+            type="button"
+            className="icon-btn js-show-sidebar"
+            onClick={showSidebar}
+            data-tip="Mostrar barra lateral"
+            aria-label="Show sidebar"
+          >
+            <PanelIcon />
+          </button>
+        )}
+        <div className="crumbs">
+          <span>{folderLabel(meeting.folder_path)}</span>
+          <span className="sep" aria-hidden="true">
+            /
+          </span>
+          <span
+            className="here"
+            style={titleProvisional ? { fontStyle: 'italic', fontWeight: 500, color: 'var(--muted)' } : undefined}
+          >
+            {meetingData.meetingTitle}
+          </span>
+          {pending && (
+            <span className="badge warn" data-tip="O título definitivo vem do H1 do primeiro resumo">
+              aguardando resumo
+            </span>
+          )}
+        </div>
+        <div className="grow" />
+        <button
+          type="button"
+          className="btn small ghost"
+          data-tip="Abrir a pasta desta reunião no Finder"
+          onClick={meetingOperations.handleOpenMeetingFolder}
+        >
+          Revelar no Finder
+        </button>
+      </header>
+
+      <div className="zones">
         <TranscriptPanel
-          transcripts={meetingData.transcripts}
-          customPrompt={customPrompt}
-          onPromptChange={setCustomPrompt}
-          onCopyTranscript={copyOperations.handleCopyTranscript}
-          onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
-          isRecording={isRecording}
-          disableAutoScroll={true}
-          // Pagination props for efficient loading
-          usePagination={true}
           segments={segments}
+          speakerMeta={speakerMeta}
+          durationLabel={durationLabel}
+          speakerCountLabel={speakerCountLabel}
+          recordedAtLabel={recordedAtLabel}
+          onCopyTranscript={copyOperations.handleCopyTranscript}
           hasMore={hasMore}
           isLoadingMore={isLoadingMore}
           totalCount={totalCount}
           loadedCount={loadedCount}
           onLoadMore={onLoadMore}
-          // Retranscription props
-          meetingId={meeting.id}
-          meetingFolderPath={meeting.folder_path}
-          onRefetchTranscripts={onRefetchTranscripts}
         />
-        <SummaryPanel
-          meeting={meeting}
-          meetingTitle={meetingData.meetingTitle}
-          onTitleChange={meetingData.handleTitleChange}
-          isEditingTitle={meetingData.isEditingTitle}
-          onStartEditTitle={() => meetingData.setIsEditingTitle(true)}
-          onFinishEditTitle={() => meetingData.setIsEditingTitle(false)}
-          isTitleDirty={meetingData.isTitleDirty}
-          summaryRef={meetingData.blockNoteSummaryRef}
-          isSaving={meetingData.isSaving}
-          onSaveAll={meetingData.saveAllChanges}
-          onCopySummary={copyOperations.handleCopySummary}
-          onOpenFolder={meetingOperations.handleOpenMeetingFolder}
-          aiSummary={meetingData.aiSummary}
-          summaryStatus={summaryGeneration.summaryStatus}
-          transcripts={meetingData.transcripts}
-          modelConfig={modelConfig}
-          setModelConfig={setModelConfig}
-          onSaveModelConfig={handleSaveModelConfig}
-          onGenerateSummary={summaryGeneration.handleGenerateSummary}
-          onStopGeneration={summaryGeneration.handleStopGeneration}
-          customPrompt={customPrompt}
-          summaryResponse={summaryResponse}
-          onSaveSummary={meetingData.handleSaveSummary}
-          onSummaryChange={meetingData.handleSummaryChange}
-          onDirtyChange={meetingData.setIsSummaryDirty}
-          summaryError={summaryGeneration.summaryError}
-          onRegenerateSummary={summaryGeneration.handleRegenerateSummary}
-          getSummaryStatusMessage={summaryGeneration.getSummaryStatusMessage}
-          availableTemplates={templates.availableTemplates}
-          selectedTemplate={templates.selectedTemplate}
-          onTemplateSelect={templates.handleTemplateSelection}
-          isModelConfigLoading={false}
-          onOpenModelSettings={handleRegisterModalOpen}
-        />
+
+        <div className="rail">
+          <SpeakersPanel diar={diar} />
+          <SummaryPanel
+            markdown={markdown}
+            hasSummary={hasSummary}
+            summaryStatus={summaryGeneration.summaryStatus}
+            summaryError={summaryGeneration.summaryError}
+            hasTranscripts={segments.length > 0 || meetingData.transcripts.length > 0}
+            modelConfig={modelConfig}
+            generatedAtLabel={generatedAtLabel}
+            templates={templates.availableTemplates}
+            selectedTemplate={templates.selectedTemplate}
+            onTemplateSelect={templates.handleTemplateSelection}
+            onGenerate={() => summaryGeneration.handleGenerateSummary(aiContext)}
+            onRegenerate={summaryGeneration.handleRegenerateSummary}
+            onCopySummary={copyOperations.handleCopySummary}
+            onExportMarkdown={handleExportMarkdown}
+            aiContext={aiContext}
+            onAiContextChange={handleAiContextChange}
+            onOpenSettings={() => router.push('/settings')}
+          />
+        </div>
       </div>
-    </motion.div>
+    </>
   );
 }
