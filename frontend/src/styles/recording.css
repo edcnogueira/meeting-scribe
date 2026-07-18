@@ -1,0 +1,102 @@
+/* ============================================================
+   Meeting Scribe — recording screen (redesign 2026-07, task R2)
+
+   Faithful port of the design export's screen-scoped styles:
+     docs/design/redesign-2026-07/recording.html (<style> block)
+
+   Only classes unique to the recording view live here; shared
+   component classes (btn, badge, banner, meter, rec-pill, progress,
+   spinner, kbd, seg, input, field) come from design-system.css.
+   ============================================================ */
+
+/* Recording view — single calm column */
+.rec-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  padding: 40px 32px;
+}
+.rec-col { width: min(640px, 100%); display: flex; flex-direction: column; gap: 18px; }
+
+.rec-title { font: 650 21px/1.25 var(--font-display); letter-spacing: -0.01em; }
+.rec-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+.device-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-l);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dev-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: center; }
+.dev-row > label { font: 600 12.5px/1.3 var(--font-ui); color: var(--fg); display: flex; align-items: center; gap: 7px; }
+.perm-row {
+  display: flex; align-items: center; gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--muted);
+  flex-wrap: wrap;
+}
+
+/* live state */
+.live-head {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-l);
+}
+.live-head .elapsed { font: 600 21px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.live-head .grow { flex: 1; }
+.live-devices { font-size: 11.5px; color: var(--faint); }
+
+.live-feed {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-l);
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  max-height: 46vh;
+}
+.live-feed-head {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  font: 600 11px/1 var(--font-ui);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+}
+.live-feed-body { flex: 1; overflow-y: auto; padding: 8px 20px 16px; }
+.live-feed-body .seg { animation: seg-in 0.4s ease; }
+@keyframes seg-in { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+.typing {
+  display: inline-flex; gap: 4px; padding: 10px 0 2px 80px;
+}
+.typing i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--faint);
+  animation: ty 1.2s ease-in-out infinite;
+}
+.typing i:nth-child(2) { animation-delay: 0.15s; }
+.typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ty { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+/* processing state */
+.proc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-l);
+  padding: 28px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center;
+}
+.proc-card h2 { font: 650 16px/1.3 var(--font-display); }
+.proc-card p { color: var(--muted); font-size: 12.5px; max-width: 42ch; }
+.proc-card .progress { width: min(320px, 100%); }
+
+/* empty transcript feed placeholder (before first segment arrives) */
+.live-feed-empty { color: var(--faint); font-size: 12.5px; padding: 6px 0 2px; }
