@@ -37,9 +37,9 @@ Ordem: O1 ∥ O2 (paralelo). Executado em 2026-07-17 (PRs #7–#9, squash na `ma
 
 Export do design em `docs/design/redesign-2026-07/` (telas HTML + `css/tokens.css` + `js/app.js` — tratar como contrato visual, ver `DESIGN-HANDOFF.md`). Tema claro/escuro por `data-theme`, tokens oklch, 12 cores estáveis de falante, sidebar em árvore espelhando o disco.
 
-- [ ] [R1 — Fundação: tokens, componentes compartilhados e shell/sidebar](redesign/R1-fundacao-tokens-componentes-shell.md)
-- [ ] [R2 — Tela "Nova reunião" (setup → gravando → processando)](redesign/R2-tela-nova-reuniao.md)
-- [ ] [R3 — Tela de detalhes da reunião (todos os estados)](redesign/R3-tela-detalhes-da-reuniao.md)
-- [ ] [R4 — Tela de Configurações](redesign/R4-tela-configuracoes.md)
+- [x] [R1 — Fundação: tokens, componentes compartilhados e shell/sidebar](redesign/R1-fundacao-tokens-componentes-shell.md)
+- [x] [R2 — Tela "Nova reunião" (setup → gravando → processando)](redesign/R2-tela-nova-reuniao.md)
+- [x] [R3 — Tela de detalhes da reunião (todos os estados)](redesign/R3-tela-detalhes-da-reuniao.md)
+- [x] [R4 — Tela de Configurações](redesign/R4-tela-configuracoes.md)
 
-Ordem: R1 primeiro; depois R2 ∥ R3 ∥ R4 (paralelo).
+Ordem: R1 primeiro; depois R2 ∥ R3 ∥ R4 (paralelo). Executado em 2026-07-17 (PRs #12–#16, squash na `main`).
