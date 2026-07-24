@@ -3,8 +3,8 @@
 //! cosine clustering). Mirrors the structure of `parakeet_engine`.
 
 use crate::diarization_engine::model::{
-    DiarizationModel, DiarizationModelError, EMBEDDING_FILE, POWERSET, SEGMENTATION_FILE,
-    SEG_WINDOW, SR,
+    DiarizationModel, DiarizationModelError, EMBEDDING_FILE, LOCAL_SPEAKERS, POWERSET,
+    SEGMENTATION_FILE, SEG_WINDOW, SR,
 };
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -195,32 +195,291 @@ struct Region {
     embedding: Vec<f32>,
 }
 
-/// Extract single-speaker speech regions with embeddings by sliding the 10 s
-/// segmentation window and embedding the exclusive (single-active-speaker) audio
-/// of each contiguous run. Ported from the D1 spike.
-fn extract_regions(
+/// Whole-recording per-frame speaker activity after stitching overlapping
+/// segmentation windows into global speaker tracks.
+struct StitchedTimeline {
+    /// Seconds per segmentation frame (~17 ms).
+    step: f32,
+    /// Per frame: bitmask over global track ids of active speakers (tracks
+    /// >= 64 are not representable in the mask and are dropped — see
+    /// `stitch_activity`; real recordings stay far below that bound).
+    active: Vec<u64>,
+    /// Per frame: the single exclusive global track id, if exactly one speaker
+    /// is active in the winning window's decision for that frame.
+    exclusive: Vec<Option<usize>>,
+    /// Number of global tracks allocated.
+    n_tracks: usize,
+}
+
+/// A contiguous speech run of a single global track over the stitched timeline.
+/// `end_f` is inclusive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Run {
+    track: usize,
+    start_f: usize,
+    end_f: usize,
+}
+
+/// The 6 permutations of three local speaker slots.
+const SLOT_PERMS: [[usize; LOCAL_SPEAKERS]; 6] = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+];
+
+/// Minimum activity-pattern IoU for a next slot to inherit a previous slot's
+/// global track. The same physical speaker occupies nearly the same absolute
+/// frames in both overlapping windows (IoU near 1); temporally adjacent speakers
+/// (one ending as the next begins) share the hand-off frames and score lower.
+/// A high floor keeps the stitch conservative: an uncertain slot gets a *fresh*
+/// track (agglomerative clustering later re-merges same-voice tracks by
+/// embedding, which is cheap to undo) rather than being welded onto a different
+/// speaker's track (an impure run, which clustering cannot undo). Empirically
+/// the eval accuracy peaks on a 0.85-0.90 plateau.
+const ALIGN_MATCH_IOU: f32 = 0.9;
+
+/// Choose the permutation of the next window's local speakers that maximizes
+/// activity-pattern agreement (intersection-over-union) with the previous window
+/// over their overlap region.
+///
+/// Returns, for each next-window local slot, the previous-window local slot it
+/// maps to, or `usize::MAX` when the slot has no agreement with any previous
+/// slot (a new or re-appearing voice that the caller assigns a fresh global
+/// track). The mapping is relative to the previous window's slots; the caller
+/// composes it with the previous window's local->global map.
+///
+/// IoU (rather than raw co-activation count) is what keeps a long-talking
+/// previous speaker from absorbing every next slot it happens to overlap.
+fn align_local_speakers(
+    prev_overlap: &[[bool; LOCAL_SPEAKERS]],
+    next_overlap: &[[bool; LOCAL_SPEAKERS]],
+) -> [usize; LOCAL_SPEAKERS] {
+    let n = prev_overlap.len().min(next_overlap.len());
+    // inter[i][j] = frames both active; act_next[i]/act_prev[j] = per-slot counts.
+    let mut inter = [[0u32; LOCAL_SPEAKERS]; LOCAL_SPEAKERS];
+    let mut act_next = [0u32; LOCAL_SPEAKERS];
+    let mut act_prev = [0u32; LOCAL_SPEAKERS];
+    for f in 0..n {
+        for j in 0..LOCAL_SPEAKERS {
+            if prev_overlap[f][j] {
+                act_prev[j] += 1;
+            }
+        }
+        for i in 0..LOCAL_SPEAKERS {
+            if !next_overlap[f][i] {
+                continue;
+            }
+            act_next[i] += 1;
+            for j in 0..LOCAL_SPEAKERS {
+                if prev_overlap[f][j] {
+                    inter[i][j] += 1;
+                }
+            }
+        }
+    }
+
+    let iou = |i: usize, j: usize| -> f32 {
+        let union = act_next[i] + act_prev[j] - inter[i][j];
+        if union == 0 {
+            0.0
+        } else {
+            inter[i][j] as f32 / union as f32
+        }
+    };
+
+    // Pick the permutation maximizing total IoU over matched pairs.
+    let mut best_perm = SLOT_PERMS[0];
+    let mut best_score = -1.0f32;
+    for perm in SLOT_PERMS.iter() {
+        let s: f32 = (0..LOCAL_SPEAKERS).map(|i| iou(i, perm[i])).sum();
+        if s > best_score {
+            best_score = s;
+            best_perm = *perm;
+        }
+    }
+
+    // A next slot only inherits a previous track when its matched pattern is
+    // similar enough (same voice); otherwise it is a fresh voice.
+    let mut out = [usize::MAX; LOCAL_SPEAKERS];
+    for i in 0..LOCAL_SPEAKERS {
+        let j = best_perm[i];
+        if iou(i, j) >= ALIGN_MATCH_IOU {
+            out[i] = j;
+        }
+    }
+    out
+}
+
+/// Stitch per-window local speaker activity into a global timeline.
+///
+/// Pure over synthetic activity matrices (no model inference): every window is a
+/// `[frames][LOCAL_SPEAKERS]` bool matrix, all windows share the same frame count
+/// (the segmentation model zero-pads to a fixed window length). `offsets[w]` is
+/// the global frame index where window `w` begins (monotonically increasing).
+/// A global frame covered by two windows is decided by the window where it sits
+/// farther from an edge ("center-most wins"); first/last windows keep their edge
+/// decisions.
+fn stitch_activity(
+    windows: &[Vec<[bool; LOCAL_SPEAKERS]>],
+    offsets: &[usize],
+    step: f32,
+) -> StitchedTimeline {
+    let n_win = windows.len();
+    if n_win == 0 || windows[0].is_empty() {
+        return StitchedTimeline {
+            step,
+            active: Vec::new(),
+            exclusive: Vec::new(),
+            n_tracks: 0,
+        };
+    }
+    let f_per = windows[0].len();
+    let offset = |w: usize| -> usize { offsets[w] };
+    let total = offset(n_win - 1) + f_per;
+
+    let slot_active = |w: usize, s: usize| -> bool { windows[w].iter().any(|fr| fr[s]) };
+
+    // Alignment chain: local slot -> global track id, window by window.
+    let mut maps: Vec<[usize; LOCAL_SPEAKERS]> = Vec::with_capacity(n_win);
+    let mut next_track = 0usize;
+
+    // Window 0: allocate a fresh track for each locally-active slot.
+    let mut m0 = [usize::MAX; LOCAL_SPEAKERS];
+    for (s, slot) in m0.iter_mut().enumerate() {
+        if slot_active(0, s) {
+            *slot = next_track;
+            next_track += 1;
+        }
+    }
+    maps.push(m0);
+
+    for w in 1..n_win {
+        let ov_start = offset(w);
+        let ov_end = offset(w - 1) + f_per; // exclusive; < offset(w) + f_per
+        let mut prev_ov: Vec<[bool; LOCAL_SPEAKERS]> = Vec::new();
+        let mut next_ov: Vec<[bool; LOCAL_SPEAKERS]> = Vec::new();
+        for g in ov_start..ov_end {
+            let pf = g - offset(w - 1);
+            let nf = g - offset(w);
+            if pf < f_per && nf < f_per {
+                prev_ov.push(windows[w - 1][pf]);
+                next_ov.push(windows[w][nf]);
+            }
+        }
+        let rel = align_local_speakers(&prev_ov, &next_ov);
+        let prev_map = maps[w - 1];
+        let mut m = [usize::MAX; LOCAL_SPEAKERS];
+        for s in 0..LOCAL_SPEAKERS {
+            if rel[s] != usize::MAX && prev_map[rel[s]] != usize::MAX {
+                m[s] = prev_map[rel[s]];
+            } else if slot_active(w, s) {
+                m[s] = next_track;
+                next_track += 1;
+            }
+        }
+        maps.push(m);
+    }
+    let n_tracks = next_track;
+
+    // Assign each global frame to a covering window. Among the windows covering
+    // a frame we trust the one that resolves the *most* local speakers there
+    // (a window that missed speech or smeared two voices into one slot resolves
+    // fewer), and break ties by "center-most wins" — the window where the frame
+    // sits farther from an edge has more receptive-field context. First/last
+    // windows keep their edge decisions (nothing else covers those frames).
+    let mut winner_w = vec![0usize; total];
+    let mut winner_f = vec![0usize; total];
+    let mut winner_key = vec![(-1i64, -1i64); total]; // (active_count, dist)
+    for w in 0..n_win {
+        let base = offset(w);
+        for f in 0..f_per {
+            let g = base + f;
+            if g >= total {
+                break;
+            }
+            let count = windows[w][f].iter().filter(|&&a| a).count() as i64;
+            let dist = f.min(f_per - 1 - f) as i64;
+            let key = (count, dist);
+            if key > winner_key[g] {
+                winner_key[g] = key;
+                winner_w[g] = w;
+                winner_f[g] = f;
+            }
+        }
+    }
+
+    let mut active = vec![0u64; total];
+    let mut exclusive = vec![None; total];
+    for g in 0..total {
+        let w = winner_w[g];
+        let f = winner_f[g];
+        let mut mask = 0u64;
+        let mut count = 0usize;
+        let mut last = 0usize;
+        for s in 0..LOCAL_SPEAKERS {
+            if windows[w][f][s] {
+                let tr = maps[w][s];
+                if tr == usize::MAX {
+                    continue;
+                }
+                if tr < 64 {
+                    mask |= 1u64 << tr;
+                }
+                count += 1;
+                last = tr;
+            }
+        }
+        active[g] = mask;
+        exclusive[g] = if count == 1 { Some(last) } else { None };
+    }
+
+    StitchedTimeline {
+        step,
+        active,
+        exclusive,
+        n_tracks,
+    }
+}
+
+/// Run segmentation over sliding windows (`SEG_WINDOW`, hop `SEG_WINDOW / 2`) and
+/// stitch the per-window local speaker slots into a global timeline.
+fn stitch_windows(
     model: &mut DiarizationModel,
     audio: &[f32],
-) -> Result<Vec<Region>, DiarizationModelError> {
-    let mut regions = Vec::new();
-    let n_windows = audio.len().div_ceil(SEG_WINDOW);
+) -> Result<StitchedTimeline, DiarizationModelError> {
+    let len = audio.len();
+    if len == 0 {
+        return Ok(StitchedTimeline {
+            step: 0.0,
+            active: Vec::new(),
+            exclusive: Vec::new(),
+            n_tracks: 0,
+        });
+    }
 
-    for w in 0..n_windows {
-        let w0 = w * SEG_WINDOW;
-        let w1 = (w0 + SEG_WINDOW).min(audio.len());
+    let hop = SEG_WINDOW / 2;
+    let mut starts: Vec<usize> = Vec::new();
+    let mut k = 0usize;
+    while k * hop < len {
+        starts.push(k * hop);
+        k += 1;
+    }
+    if starts.is_empty() {
+        starts.push(0);
+    }
+
+    let mut windows: Vec<Vec<[bool; LOCAL_SPEAKERS]>> = Vec::with_capacity(starts.len());
+    let mut f_per = 0usize;
+    for &w0 in &starts {
+        let w1 = (w0 + SEG_WINDOW).min(len);
         let window = &audio[w0..w1];
         let logits = model.segment_window(window)?;
         let frames = logits.shape()[1];
-        if frames == 0 {
-            continue;
-        }
-        let step = SEG_WINDOW as f32 / frames as f32 / SR as f32; // seconds/frame
-        let win_start = w0 as f32 / SR as f32;
-        let samples_per_frame = SEG_WINDOW / frames;
-
-        // per-frame active local speakers + exclusivity
-        let mut active = vec![[false; 3]; frames];
-        let mut exclusive = vec![usize::MAX; frames];
+        f_per = frames;
+        let mut act = vec![[false; LOCAL_SPEAKERS]; frames];
         for f in 0..frames {
             let mut best = 0usize;
             let mut best_v = f32::NEG_INFINITY;
@@ -231,74 +490,154 @@ fn extract_regions(
                     best = c;
                 }
             }
-            let set = POWERSET[best];
-            for &s in set {
-                active[f][s] = true;
-            }
-            if set.len() == 1 {
-                exclusive[f] = set[0];
+            for &s in POWERSET[best] {
+                act[f][s] = true;
             }
         }
+        windows.push(act);
+    }
 
-        let bridge = (0.25 / step).round() as usize; // bridge gaps <= 250 ms
-        let min_frames = (0.4 / step).round() as usize; // drop < 400 ms
+    if f_per == 0 {
+        return Ok(StitchedTimeline {
+            step: 0.0,
+            active: Vec::new(),
+            exclusive: Vec::new(),
+            n_tracks: 0,
+        });
+    }
 
-        for spk in 0..3 {
-            let mut f = 0usize;
-            while f < frames {
-                if !active[f][spk] {
-                    f += 1;
-                    continue;
-                }
-                let start = f;
-                let mut end = f;
-                let mut gap = 0usize;
-                let mut g = f + 1;
-                while g < frames {
-                    if active[g][spk] {
-                        end = g;
-                        gap = 0;
-                    } else {
-                        gap += 1;
-                        if gap > bridge {
-                            break;
-                        }
-                    }
-                    g += 1;
-                }
-                f = end + 1;
-                if end - start + 1 < min_frames {
-                    continue;
-                }
+    let step = SEG_WINDOW as f32 / f_per as f32 / SR as f32; // seconds/frame
+    // Global frame index of each window's start sample (true float grid, so
+    // there is no cumulative drift between windows).
+    let offsets: Vec<usize> = starts
+        .iter()
+        .map(|&w0| (w0 as f64 * f_per as f64 / SEG_WINDOW as f64).round() as usize)
+        .collect();
+    let mut timeline = stitch_activity(&windows, &offsets, step);
 
-                // gather exclusive samples for a clean embedding
-                let mut clean: Vec<f32> = Vec::new();
-                for fr in start..=end {
-                    if exclusive[fr] == spk {
-                        let s0 = w0 + fr * samples_per_frame;
-                        let s1 = (s0 + samples_per_frame).min(audio.len());
-                        if s0 < audio.len() {
-                            clean.extend_from_slice(&audio[s0..s1]);
-                        }
-                    }
-                }
-                // fallback: whole run if not enough exclusive audio
-                let seg_samples = if clean.len() >= SR / 3 {
-                    clean
+    // Trim padding-only tail frames beyond the real audio duration.
+    let real_frames = sample_to_frame(len, f_per);
+    if timeline.active.len() > real_frames {
+        timeline.active.truncate(real_frames);
+        timeline.exclusive.truncate(real_frames);
+    }
+
+    Ok(timeline)
+}
+
+/// Global frame index nearest a sample position on the true segmentation grid
+/// (`SEG_WINDOW` samples span `f_per` frames). Used consistently for offsets and
+/// for run/embedding sample boundaries so no integer rounding drifts.
+fn sample_to_frame(sample: usize, f_per: usize) -> usize {
+    (sample as f64 * f_per as f64 / SEG_WINDOW as f64).round() as usize
+}
+
+/// First audio sample of global frame `g` on the true segmentation grid.
+fn frame_to_sample(g: usize, f_per: usize) -> usize {
+    (g as f64 * SEG_WINDOW as f64 / f_per as f64).round() as usize
+}
+
+/// Extract per-track speech runs from the stitched timeline: bridge gaps
+/// <= 250 ms, drop runs < 400 ms — both measured on the whole-recording timeline
+/// so a run straddling a window boundary survives as a single run.
+fn extract_runs(timeline: &StitchedTimeline) -> Vec<Run> {
+    let frames = timeline.active.len();
+    if frames == 0 || timeline.step <= 0.0 {
+        return Vec::new();
+    }
+    let bridge = (0.25 / timeline.step).round() as usize; // bridge gaps <= 250 ms
+    let min_frames = (0.4 / timeline.step).round() as usize; // drop < 400 ms
+
+    let mut runs = Vec::new();
+    for track in 0..timeline.n_tracks.min(64) {
+        let bit = 1u64 << track;
+        let is_active = |f: usize| (timeline.active[f] & bit) != 0;
+        let mut f = 0usize;
+        while f < frames {
+            if !is_active(f) {
+                f += 1;
+                continue;
+            }
+            let start = f;
+            let mut end = f;
+            let mut gap = 0usize;
+            let mut g = f + 1;
+            while g < frames {
+                if is_active(g) {
+                    end = g;
+                    gap = 0;
                 } else {
-                    let s0 = (w0 + start * samples_per_frame).min(audio.len());
-                    let s1 = (w0 + (end + 1) * samples_per_frame).min(audio.len());
-                    audio[s0..s1].to_vec()
-                };
+                    gap += 1;
+                    if gap > bridge {
+                        break;
+                    }
+                }
+                g += 1;
+            }
+            f = end + 1;
+            if end - start + 1 < min_frames {
+                continue;
+            }
+            runs.push(Run {
+                track,
+                start_f: start,
+                end_f: end,
+            });
+        }
+    }
+    runs
+}
 
-                if let Some(e) = model.embed(&seg_samples)? {
-                    regions.push(Region {
-                        start: win_start + start as f32 * step,
-                        end: win_start + (end + 1) as f32 * step,
-                        embedding: e,
-                    });
+/// Extract single-speaker speech regions with embeddings by stitching the
+/// overlapping segmentation windows into a global timeline, extracting per-track
+/// runs globally, and embedding the exclusive (single-active-speaker) audio of
+/// each run. Embedding logic is unchanged from the D1 spike (exclusive samples,
+/// whole-run fallback below `SR / 3`); chunked averaging is a later task.
+fn extract_regions(
+    model: &mut DiarizationModel,
+    audio: &[f32],
+) -> Result<Vec<Region>, DiarizationModelError> {
+    let timeline = stitch_windows(model, audio)?;
+    let step = timeline.step;
+    if step <= 0.0 {
+        return Ok(Vec::new());
+    }
+    // Recover the frames-per-window from the step to map global frames to samples
+    // on the same true grid the offsets used (no cumulative drift).
+    let f_per = (SEG_WINDOW as f64 / (step as f64 * SR as f64)).round() as usize;
+    if f_per == 0 {
+        return Ok(Vec::new());
+    }
+
+    let runs = extract_runs(&timeline);
+    let mut regions = Vec::new();
+    for run in runs {
+        // gather exclusive samples for a clean embedding
+        let mut clean: Vec<f32> = Vec::new();
+        for fr in run.start_f..=run.end_f {
+            if timeline.exclusive[fr] == Some(run.track) {
+                let s0 = frame_to_sample(fr, f_per);
+                let s1 = frame_to_sample(fr + 1, f_per).min(audio.len());
+                if s0 < audio.len() {
+                    clean.extend_from_slice(&audio[s0..s1]);
                 }
             }
+        }
+        // fallback: whole run if not enough exclusive audio
+        let seg_samples = if clean.len() >= SR / 3 {
+            clean
+        } else {
+            let s0 = frame_to_sample(run.start_f, f_per).min(audio.len());
+            let s1 = frame_to_sample(run.end_f + 1, f_per).min(audio.len());
+            audio[s0..s1].to_vec()
+        };
+
+        if let Some(e) = model.embed(&seg_samples)? {
+            regions.push(Region {
+                start: run.start_f as f32 * step,
+                end: (run.end_f + 1) as f32 * step,
+                embedding: e,
+            });
         }
     }
 
@@ -788,5 +1127,227 @@ mod tests {
         let b = vec![0.0, 1.0, 0.0];
         assert!((cos_sim(&a, &a) - 1.0).abs() < 1e-6);
         assert!(cos_sim(&a, &b).abs() < 1e-6);
+    }
+
+    // ---- Window stitching (task 4) ----------------------------------------
+
+    /// Build a `[frames][3]` activity matrix. `spans[s]` is a list of inclusive
+    /// `(start, end)` frame ranges where local slot `s` is active.
+    fn activity(frames: usize, spans: [&[(usize, usize)]; LOCAL_SPEAKERS]) -> Vec<[bool; 3]> {
+        let mut m = vec![[false; 3]; frames];
+        for (s, ranges) in spans.iter().enumerate() {
+            for &(a, b) in ranges.iter() {
+                for f in a..=b {
+                    m[f][s] = true;
+                }
+            }
+        }
+        m
+    }
+
+    #[test]
+    fn test_align_identity_mapping() {
+        // Three slots, each active in a distinct third; prev == next.
+        let prev = activity(15, [&[(0, 4)], &[(5, 9)], &[(10, 14)]]);
+        let next = prev.clone();
+        assert_eq!(align_local_speakers(&prev, &next), [0, 1, 2]);
+    }
+
+    #[test]
+    fn test_align_swapped_speakers() {
+        // next slot 0 sits where prev slot 1 spoke, next slot 1 where prev 0.
+        let prev = activity(15, [&[(0, 4)], &[(5, 9)], &[(10, 14)]]);
+        let next = activity(15, [&[(5, 9)], &[(0, 4)], &[(10, 14)]]);
+        assert_eq!(align_local_speakers(&prev, &next), [1, 0, 2]);
+    }
+
+    #[test]
+    fn test_align_new_speaker_appears() {
+        // prev only slot 0 active in [0,4]. next slot 0 matches it; next slot 1
+        // is active where nobody spoke before -> new; slot 2 silent -> new.
+        let prev = activity(10, [&[(0, 4)], &[], &[]]);
+        let next = activity(10, [&[(0, 4)], &[(5, 9)], &[]]);
+        let rel = align_local_speakers(&prev, &next);
+        assert_eq!(rel[0], 0, "slot 0 should match prev slot 0");
+        assert_eq!(rel[1], usize::MAX, "slot 1 is a new voice");
+        assert_eq!(rel[2], usize::MAX, "slot 2 is silent -> unmatched");
+    }
+
+    /// Build a single-track-per-bit timeline from explicit active spans.
+    fn timeline_from(
+        step: f32,
+        frames: usize,
+        n_tracks: usize,
+        tracks: &[(usize, &[(usize, usize)])],
+    ) -> StitchedTimeline {
+        let mut active = vec![0u64; frames];
+        for &(t, spans) in tracks {
+            for &(a, b) in spans {
+                for f in a..=b {
+                    active[f] |= 1u64 << t;
+                }
+            }
+        }
+        let exclusive = active
+            .iter()
+            .map(|&m| {
+                if m.count_ones() == 1 {
+                    Some(m.trailing_zeros() as usize)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        StitchedTimeline {
+            step,
+            active,
+            exclusive,
+            n_tracks,
+        }
+    }
+
+    #[test]
+    fn test_extract_runs_boundary_straddle_retained() {
+        // step = 50 ms/frame -> min 8 frames (400 ms), bridge 5 frames (250 ms).
+        // A 700 ms run (14 frames) that would be two 350 ms fragments under
+        // per-window extraction is retained as one global run.
+        let step = 0.05;
+        let tl = timeline_from(step, 20, 1, &[(0, &[(3, 16)])]);
+        let runs = extract_runs(&tl);
+        assert_eq!(runs, vec![Run { track: 0, start_f: 3, end_f: 16 }]);
+    }
+
+    #[test]
+    fn test_extract_runs_gap_bridging_and_min_duration() {
+        let step = 0.05; // min 8 frames, bridge 5 frames
+        // track 0: [0,4] then 4-frame gap [5,8] (<=5) then [9,13] -> bridged
+        //          into a single 14-frame run.
+        // track 1: a lone 6-frame run (300 ms) -> dropped (< 400 ms).
+        let tl = timeline_from(
+            step,
+            40,
+            2,
+            &[
+                (0, &[(0, 4), (9, 13)]),
+                (1, &[(20, 25)]),
+            ],
+        );
+        let runs = extract_runs(&tl);
+        assert_eq!(
+            runs,
+            vec![Run { track: 0, start_f: 0, end_f: 13 }],
+            "track 0 bridged; track 1's 300 ms run dropped"
+        );
+    }
+
+    #[test]
+    fn test_extract_runs_wide_gap_splits() {
+        let step = 0.05; // bridge 5 frames
+        // A 6-frame gap (> bridge) splits into two runs, both >= 400 ms.
+        let tl = timeline_from(step, 40, 1, &[(0, &[(0, 9), (16, 25)])]);
+        let runs = extract_runs(&tl);
+        assert_eq!(
+            runs,
+            vec![
+                Run { track: 0, start_f: 0, end_f: 9 },
+                Run { track: 0, start_f: 16, end_f: 25 },
+            ]
+        );
+    }
+
+    /// Non-empty per-track membership vectors over the timeline frames, sorted —
+    /// a canonical form invariant to global-track renaming.
+    fn track_signatures(tl: &StitchedTimeline) -> Vec<Vec<bool>> {
+        let frames = tl.active.len();
+        let mut sigs: Vec<Vec<bool>> = (0..tl.n_tracks.min(64))
+            .map(|t| {
+                let bit = 1u64 << t;
+                (0..frames).map(|f| (tl.active[f] & bit) != 0).collect()
+            })
+            .filter(|sig: &Vec<bool>| sig.iter().any(|&b| b))
+            .collect();
+        sigs.sort();
+        sigs
+    }
+
+    #[test]
+    fn test_stitch_permutation_invariant() {
+        use rand::rngs::StdRng;
+        use rand::seq::SliceRandom;
+        use rand::{Rng, SeedableRng};
+
+        let f_per = 40usize;
+        let step = SEG_WINDOW as f32 / f_per as f32 / SR as f32;
+        let offset = |w: usize| -> usize { ((w as f32) * (f_per as f32) / 2.0).round() as usize };
+
+        for case in 0..200u64 {
+            let mut rng = StdRng::seed_from_u64(0xD1A5_0000 + case);
+            let n_win = rng.gen_range(2..=5);
+            let total = offset(n_win - 1) + f_per;
+
+            // Build a consistent global speaker timeline the way real overlapping
+            // segmentation windows see it: up to 3 speakers take turns in
+            // contiguous blobs (with silence gaps), so every window observes the
+            // same speaker at the same absolute frame. This is what makes
+            // cross-window alignment well-posed.
+            let mut spk = vec![usize::MAX; total]; // usize::MAX = silence
+            {
+                let mut g = 0usize;
+                let mut who = rng.gen_range(0..3);
+                while g < total {
+                    if rng.gen_bool(0.2) {
+                        // silence gap
+                        let gap = rng.gen_range(1..=f_per / 4);
+                        g = (g + gap).min(total);
+                    } else {
+                        let len = rng.gen_range(f_per / 4..=f_per);
+                        let end = (g + len).min(total);
+                        for cell in spk.iter_mut().take(end).skip(g) {
+                            *cell = who;
+                        }
+                        g = end;
+                        who = (who + 1 + rng.gen_range(0..2)) % 3; // advance speaker
+                    }
+                }
+            }
+
+            // Each window observes the active speakers through an arbitrary
+            // (per-window) speaker -> local-slot assignment, exactly what the
+            // segmentation model produces window to window.
+            let mut windows: Vec<Vec<[bool; 3]>> = Vec::with_capacity(n_win);
+            for w in 0..n_win {
+                let mut slot_of = [0usize, 1, 2];
+                slot_of.shuffle(&mut rng); // speaker k -> local slot slot_of[k]
+                let mut m = vec![[false; 3]; f_per];
+                for (f, frame) in m.iter_mut().enumerate() {
+                    let g = offset(w) + f;
+                    if g < total && spk[g] != usize::MAX {
+                        frame[slot_of[spk[g]]] = true;
+                    }
+                }
+                windows.push(m);
+            }
+
+            // Permute the local slots of one randomly chosen window.
+            let w_idx = rng.gen_range(0..n_win);
+            let perm = SLOT_PERMS[rng.gen_range(0..SLOT_PERMS.len())];
+            let mut permuted = windows.clone();
+            for frame in permuted[w_idx].iter_mut() {
+                let orig = *frame;
+                for i in 0..3 {
+                    frame[i] = orig[perm[i]];
+                }
+            }
+
+            let offsets: Vec<usize> = (0..n_win).map(offset).collect();
+            let base = stitch_activity(&windows, &offsets, step);
+            let alt = stitch_activity(&permuted, &offsets, step);
+
+            assert_eq!(
+                track_signatures(&base),
+                track_signatures(&alt),
+                "case {case}: permuting window {w_idx} by {perm:?} changed the global timeline"
+            );
+        }
     }
 }
