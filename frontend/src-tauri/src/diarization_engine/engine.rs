@@ -188,6 +188,124 @@ pub fn cluster_agglomerative(
     labels
 }
 
+/// Relabel `labels` in place to contiguous `0..k` in order of first appearance,
+/// where `k` is the number of distinct labels present. Deterministic.
+fn relabel_contiguous(labels: &mut [usize]) {
+    let mut remap: Vec<(usize, usize)> = Vec::new(); // (old_label, new_label)
+    for &l in labels.iter() {
+        if !remap.iter().any(|(old, _)| *old == l) {
+            let next = remap.len();
+            remap.push((l, next));
+        }
+    }
+    for l in labels.iter_mut() {
+        *l = remap.iter().find(|(old, _)| *old == *l).map(|(_, new)| *new).unwrap();
+    }
+}
+
+/// Refine agglomerative labels by nearest-centroid reassignment.
+///
+/// Each iteration recomputes every cluster's centroid (the L2-normalized mean of
+/// its member embeddings) and reassigns each embedding to the centroid it is most
+/// cosine-similar to. Runs up to `iters` iterations, stopping early once a pass
+/// changes no assignment. Fixes agglomerative chaining mistakes without touching
+/// the calibrated thresholds.
+///
+/// Empty-cluster semantics differ by mode (Requirements 4.1 vs 4.2):
+/// - `fixed_k == true` (a Speaker_Count_Hint fixed k): a reassignment that would
+///   empty its source cluster is REJECTED, so the number of distinct clusters is
+///   preserved exactly. This keeps fixed-k output at exactly k clusters (Req 4.2).
+/// - `fixed_k == false` (auto / threshold mode): clusters are ALLOWED to dissolve.
+///   Letting a weak spurious cluster lose all its members drives the detected
+///   speaker count down toward the true count (Req 4.1), which is the dominant
+///   residual defect. After refinement labels are relabeled to contiguous 0..k'
+///   with k' <= k.
+///
+/// Postconditions: labels are always contiguous `0..k'` (first-appearance order).
+/// In fixed-k mode `k' == input k`.
+fn refine_clusters(embeddings: &[Vec<f32>], labels: &mut [usize], fixed_k: bool, iters: usize) {
+    let n = embeddings.len();
+    if n == 0 || labels.is_empty() {
+        return;
+    }
+
+    for _ in 0..iters {
+        // Distinct labels currently in use, and each cluster's member count.
+        let mut distinct: Vec<usize> = Vec::new();
+        for &l in labels.iter() {
+            if !distinct.contains(&l) {
+                distinct.push(l);
+            }
+        }
+        let k = distinct.len();
+        if k <= 1 {
+            break; // nothing to reassign against a single centroid
+        }
+
+        // Recompute centroids: L2-normalized mean of each cluster's embeddings.
+        let dim = embeddings[0].len();
+        let mut centroids: Vec<Vec<f32>> = vec![vec![0.0f32; dim]; k];
+        for (i, &l) in labels.iter().enumerate() {
+            let ci = distinct.iter().position(|d| *d == l).unwrap();
+            for (acc, x) in centroids[ci].iter_mut().zip(embeddings[i].iter()) {
+                *acc += *x;
+            }
+        }
+        for c in centroids.iter_mut() {
+            let norm = c.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-9);
+            for x in c.iter_mut() {
+                *x /= norm;
+            }
+        }
+
+        // Running per-cluster sizes so fixed-k mode can reject an empty-ing move.
+        let mut sizes = vec![0usize; k];
+        for &l in labels.iter() {
+            sizes[distinct.iter().position(|d| *d == l).unwrap()] += 1;
+        }
+
+        // Batch reassignment against the centroids fixed for this iteration.
+        let mut changed = false;
+        for i in 0..n {
+            let cur_ci = distinct.iter().position(|d| *d == labels[i]).unwrap();
+            // Nearest centroid by cosine similarity (embeddings are L2-normalized,
+            // so a dot product is the cosine). Ties keep the lowest index, and the
+            // current cluster is favoured on an exact tie via strict `>`.
+            let mut best_ci = cur_ci;
+            let mut best_sim = cos_sim(&centroids[cur_ci], &embeddings[i]);
+            for ci in 0..k {
+                if ci == cur_ci {
+                    continue;
+                }
+                let sim = cos_sim(&centroids[ci], &embeddings[i]);
+                if sim > best_sim {
+                    best_sim = sim;
+                    best_ci = ci;
+                }
+            }
+            if best_ci == cur_ci {
+                continue;
+            }
+            // Fixed-k: refuse to move the last member out of its cluster.
+            if fixed_k && sizes[cur_ci] <= 1 {
+                continue;
+            }
+            sizes[cur_ci] -= 1;
+            sizes[best_ci] += 1;
+            labels[i] = distinct[best_ci];
+            changed = true;
+        }
+
+        // Normalize labels back to contiguous ids for the next iteration and for
+        // callers (auto mode may have dissolved a cluster).
+        relabel_contiguous(labels);
+
+        if !changed {
+            break;
+        }
+    }
+}
+
 /// Internal speech region carrying its embedding before clustering.
 struct Region {
     start: f32,
@@ -879,11 +997,15 @@ impl DiarizationEngine {
         }
 
         let embeddings: Vec<Vec<f32>> = regions.iter().map(|r| r.embedding.clone()).collect();
-        let labels = cluster_agglomerative(
+        let mut labels = cluster_agglomerative(
             &embeddings,
             Some(CLUSTER_COSINE_DISTANCE_CUT),
             num_speakers,
         );
+        // Nearest-centroid refinement corrects agglomerative chaining mistakes.
+        // Fixed-k mode (a Speaker_Count_Hint) preserves the cluster count; auto
+        // mode lets spurious clusters dissolve toward the true speaker count.
+        refine_clusters(&embeddings, &mut labels, num_speakers.is_some(), 2);
 
         let turns = regions
             .into_iter()
@@ -1422,6 +1544,137 @@ mod tests {
                 track_signatures(&alt),
                 "case {case}: permuting window {w_idx} by {perm:?} changed the global timeline"
             );
+        }
+    }
+
+    /// A random L2-normalized embedding (diarize consumers assume unit vectors).
+    fn rand_embedding(rng: &mut rand::rngs::StdRng, dim: usize) -> Vec<f32> {
+        use rand::Rng;
+        let mut v: Vec<f32> = (0..dim).map(|_| rng.gen_range(-1.0f32..1.0)).collect();
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-9);
+        for x in v.iter_mut() {
+            *x /= norm;
+        }
+        v
+    }
+
+    fn distinct_count(labels: &[usize]) -> usize {
+        let mut seen: Vec<usize> = Vec::new();
+        for &l in labels {
+            if !seen.contains(&l) {
+                seen.push(l);
+            }
+        }
+        seen.len()
+    }
+
+    fn assert_contiguous_from_zero(labels: &[usize]) {
+        let k = distinct_count(labels);
+        for &l in labels {
+            assert!(l < k, "label {l} out of range 0..{k}: {labels:?}");
+        }
+        // Every id in 0..k must appear (contiguity).
+        for id in 0..k {
+            assert!(labels.contains(&id), "id {id} missing from {labels:?}");
+        }
+    }
+
+    /// Property 2: Fixed-k clustering. For random embedding sets and hints
+    /// k in [1, |E|], `cluster_agglomerative(.., Some(k))` + `refine_clusters` in
+    /// fixed-k mode yields contiguous labels with exactly k distinct values.
+    /// Validates Requirement 4.2.
+    #[test]
+    fn prop_fixed_k_clustering_contiguous_exactly_k() {
+        use rand::{Rng, SeedableRng};
+        for case in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(0xC0CE_0000 + case);
+            let dim = 16;
+            let n = rng.gen_range(1..=12usize);
+            let k = rng.gen_range(1..=n);
+            let embs: Vec<Vec<f32>> = (0..n).map(|_| rand_embedding(&mut rng, dim)).collect();
+
+            let mut labels =
+                cluster_agglomerative(&embs, Some(CLUSTER_COSINE_DISTANCE_CUT), Some(k));
+            assert_eq!(
+                distinct_count(&labels),
+                k,
+                "case {case}: agglomerative fixed-k gave {} clusters, want {k}",
+                distinct_count(&labels)
+            );
+
+            refine_clusters(&embs, &mut labels, true, 2);
+
+            assert_contiguous_from_zero(&labels);
+            assert_eq!(
+                distinct_count(&labels),
+                k,
+                "case {case}: fixed-k refinement changed cluster count to {}, want {k}",
+                distinct_count(&labels)
+            );
+        }
+    }
+
+    /// Property 3: Reassignment preserves cluster count. For random embedding sets
+    /// and arbitrary initial labelings with k distinct clusters, fixed-k
+    /// `refine_clusters` leaves the number of distinct labels unchanged at k.
+    /// Validates Requirement 4.2.
+    #[test]
+    fn prop_fixed_k_refinement_preserves_cluster_count() {
+        use rand::seq::SliceRandom;
+        use rand::{Rng, SeedableRng};
+        for case in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(0xC0DE_0000 + case);
+            let dim = 16;
+            let k = rng.gen_range(1..=6usize);
+            let n = rng.gen_range(k..=k + 10);
+            let embs: Vec<Vec<f32>> = (0..n).map(|_| rand_embedding(&mut rng, dim)).collect();
+
+            // Arbitrary labeling that uses exactly k distinct ids: seed 0..k, then
+            // fill the rest at random, then shuffle so cluster ids are scattered.
+            let mut labels: Vec<usize> = (0..k).collect();
+            for _ in k..n {
+                labels.push(rng.gen_range(0..k));
+            }
+            labels.shuffle(&mut rng);
+            assert_eq!(distinct_count(&labels), k);
+
+            refine_clusters(&embs, &mut labels, true, 2);
+
+            assert_eq!(
+                distinct_count(&labels),
+                k,
+                "case {case}: fixed-k refinement changed cluster count to {}, want {k}",
+                distinct_count(&labels)
+            );
+            assert_contiguous_from_zero(&labels);
+        }
+    }
+
+    /// Auto-mode property: after threshold-mode `refine_clusters`, labels remain
+    /// contiguous 0..k' with k' <= k (spurious clusters may dissolve, never grow).
+    /// Supports Requirement 4.1.
+    #[test]
+    fn prop_auto_mode_refinement_contiguous_non_increasing() {
+        use rand::{Rng, SeedableRng};
+        for case in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(0xADD0_0000 + case);
+            let dim = 16;
+            let n = rng.gen_range(1..=14usize);
+            let embs: Vec<Vec<f32>> = (0..n).map(|_| rand_embedding(&mut rng, dim)).collect();
+
+            let mut labels =
+                cluster_agglomerative(&embs, Some(CLUSTER_COSINE_DISTANCE_CUT), None);
+            let k_before = distinct_count(&labels);
+
+            refine_clusters(&embs, &mut labels, false, 2);
+
+            assert_contiguous_from_zero(&labels);
+            let k_after = distinct_count(&labels);
+            assert!(
+                k_after <= k_before.max(1),
+                "case {case}: auto-mode refinement grew clusters {k_before} -> {k_after}"
+            );
+            assert_eq!(labels.len(), n, "case {case}: label count changed");
         }
     }
 }

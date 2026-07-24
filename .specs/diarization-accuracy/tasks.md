@@ -46,10 +46,10 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
   - [x] 5.1 Implement `embed_run`: exclusive-sample gathering per run, ~3 s chunked embedding with L2-normalized mean for runs > 6 s, whole-run fallback below 333 ms of exclusive audio, `None` → run excluded from clustering with processing continuing
     - _Requirements: 2.1, 2.4, 2.5, 4.3_
 
-- [ ] 6. Clustering refinement
-  - [ ] 6.1 Implement `refine_clusters` (2 iterations of nearest-centroid reassignment, rejecting reassignments that would empty a cluster) and call it after `cluster_agglomerative` in `diarize()`
+- [x] 6. Clustering refinement
+  - [x] 6.1 Implement `refine_clusters` (2 iterations of nearest-centroid reassignment, rejecting reassignments that would empty a cluster) and call it after `cluster_agglomerative` in `diarize()`
     - _Requirements: 4.1, 4.2_
-  - [ ]* 6.2 Write property tests for **Property 2: Fixed-k clustering** and **Property 3: Reassignment preserves cluster count** (seeded randomized embeddings, N=200)
+  - [x]* 6.2 Write property tests for **Property 2: Fixed-k clustering** and **Property 3: Reassignment preserves cluster count** (seeded randomized embeddings, N=200)
     - **Validates: Requirements 4.2**
 
 - [ ] 7. Regression property tests for attribution and shift invariance
