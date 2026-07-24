@@ -66,6 +66,7 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
 ## Amendments
 
 - [x] 9. De-bias fixtures off the 10 s window grid and re-record fair baseline (user-approved 2026-07-24)
+- [x] 8a. Sanctioned tuning pass: soft overlap weighting (all fixtures >= fair baseline). Replaced the binary "center-most window wins" per-frame stitch decision with softmax-marginal, edge-weighted (triangular) soft aggregation thresholded at 0.42, with ALIGN_MATCH_IOU relaxed to 0.80. Assert-mode `cargo test --test diarization_accuracy` green: seq3 0.9828, overlap3 0.8030, track2 0.9907, seq3_degraded 0.8948, overlap3_degraded 0.7365 — every fixture above its fair baseline; detected counts corrected to 3/3, 2/2, 3/3 on the non-overlap fixtures. STRICT mode still short of the aspirational absolute targets (unchanged, pre-existing gap). RTF ~0.03.
 
 ## Notes
 

@@ -4,7 +4,7 @@
 
 use crate::diarization_engine::model::{
     DiarizationModel, DiarizationModelError, EMBEDDING_FILE, LOCAL_SPEAKERS, POWERSET,
-    SEGMENTATION_FILE, SEG_WINDOW, SR,
+    POWERSET_CLASSES, SEGMENTATION_FILE, SEG_WINDOW, SR,
 };
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -356,8 +356,31 @@ const SLOT_PERMS: [[usize; LOCAL_SPEAKERS]; 6] = [
 /// track (agglomerative clustering later re-merges same-voice tracks by
 /// embedding, which is cheap to undo) rather than being welded onto a different
 /// speaker's track (an impure run, which clustering cannot undo). Empirically
-/// the eval accuracy peaks on a 0.85-0.90 plateau.
-const ALIGN_MATCH_IOU: f32 = 0.9;
+/// the eval accuracy peaks on a 0.85-0.90 plateau. The task-8 soft-weighting
+/// sweep (over [0.80, 0.95]) settled on the low end: a looser floor lets an
+/// overlapping speaker inherit its track across the window seam instead of
+/// spawning a fresh one, which recovers the clean sequential fixtures without
+/// costing the overlap gains.
+const ALIGN_MATCH_IOU: f32 = 0.80;
+
+/// Per-frame activity probability at/above which a global track counts as active
+/// in the soft stitching aggregation. Chosen by the task-8 sweep over [0.40,
+/// 0.60]: 0.42 keeps a lightly-covered overlapping speaker (whose marginal
+/// probability is split across two windows) active while still rejecting the
+/// weak secondary energy that used to smear the sequential fixtures' boundaries.
+const STITCH_ACTIVE_THRESHOLD: f32 = 0.42;
+
+/// Triangular edge weight for a frame `f` of `f_per`: distance from the nearest
+/// window edge (+1 floor so the extreme edges still contribute). Weights each
+/// covering window's per-track probability in the soft aggregation so the window
+/// that sees a frame with the most receptive-field context counts for the most.
+/// Triangular beat Hann and flat-with-margin in the task-8 sweep.
+fn edge_weight(f: usize, f_per: usize) -> f32 {
+    if f_per <= 1 {
+        return 1.0;
+    }
+    (f.min(f_per - 1 - f) as f32) + 1.0
+}
 
 /// Choose the permutation of the next window's local speakers that maximizes
 /// activity-pattern agreement (intersection-over-union) with the previous window
@@ -437,11 +460,20 @@ fn align_local_speakers(
 /// `[frames][LOCAL_SPEAKERS]` bool matrix, all windows share the same frame count
 /// (the segmentation model zero-pads to a fixed window length). `offsets[w]` is
 /// the global frame index where window `w` begins (monotonically increasing).
-/// A global frame covered by two windows is decided by the window where it sits
-/// farther from an edge ("center-most wins"); first/last windows keep their edge
-/// decisions.
+///
+/// `probs[w][f][s]` is the marginal probability that local speaker `s` is active
+/// in window `w` at frame `f` (softmax over the powerset classes, marginalized).
+/// A global frame covered by several windows is decided by **soft overlap
+/// weighting**: each covering window's per-track probability is weighted by an
+/// edge-distance taper (triangular / Hann / flat-with-margin), summed, normalized
+/// by the total weight, and thresholded — a track above `STITCH_ACTIVE_THRESHOLD`
+/// is active, and the frame is exclusive when exactly one track clears it. The bool
+/// `windows` still drive the permutation-alignment chain unchanged; only the
+/// final per-frame decision uses the soft probabilities. When `probs` is empty
+/// the bool activity is reused as hard 0/1 probabilities (pure-logic callers/tests).
 fn stitch_activity(
     windows: &[Vec<[bool; LOCAL_SPEAKERS]>],
+    probs: &[Vec<[f32; LOCAL_SPEAKERS]>],
     offsets: &[usize],
     step: f32,
 ) -> StitchedTimeline {
@@ -502,47 +534,61 @@ fn stitch_activity(
     }
     let n_tracks = next_track;
 
-    // Assign each global frame to a covering window. Among the windows covering
-    // a frame we trust the one that resolves the *most* local speakers there
-    // (a window that missed speech or smeared two voices into one slot resolves
-    // fewer), and break ties by "center-most wins" — the window where the frame
-    // sits farther from an edge has more receptive-field context. First/last
-    // windows keep their edge decisions (nothing else covers those frames).
-    let mut winner_w = vec![0usize; total];
-    let mut winner_f = vec![0usize; total];
-    let mut winner_key = vec![(-1i64, -1i64); total]; // (active_count, dist)
-    for w in 0..n_win {
-        let base = offset(w);
-        for f in 0..f_per {
-            let g = base + f;
-            if g >= total {
-                break;
+    // Soft overlap weighting. For every global frame, aggregate the per-global-
+    // track activity *probability* contributed by each covering window, weighted
+    // by an edge-distance taper (the window where a frame sits farther from an
+    // edge has more receptive-field context, so it counts for more). Normalize by
+    // the total weight and threshold: a track above `threshold` is active, and
+    // the frame is exclusive when exactly one track clears it. This replaces the
+    // former hard "center-most window wins" decision, which discarded the
+    // agreement between overlapping windows and smeared boundary frames.
+    let prob_at = |w: usize, f: usize, s: usize| -> f32 {
+        if probs.is_empty() {
+            if windows[w][f][s] {
+                1.0
+            } else {
+                0.0
             }
-            let count = windows[w][f].iter().filter(|&&a| a).count() as i64;
-            let dist = f.min(f_per - 1 - f) as i64;
-            let key = (count, dist);
-            if key > winner_key[g] {
-                winner_key[g] = key;
-                winner_w[g] = w;
-                winner_f[g] = f;
-            }
+        } else {
+            probs[w][f][s]
         }
-    }
+    };
 
     let mut active = vec![0u64; total];
     let mut exclusive = vec![None; total];
+    let mut track_p = vec![0.0f32; n_tracks];
     for g in 0..total {
-        let w = winner_w[g];
-        let f = winner_f[g];
+        for p in track_p.iter_mut() {
+            *p = 0.0;
+        }
+        let mut wsum = 0.0f32;
+        for w in 0..n_win {
+            let base = offset(w);
+            if g < base {
+                continue;
+            }
+            let f = g - base;
+            if f >= f_per {
+                continue;
+            }
+            let wt = edge_weight(f, f_per).max(1e-6);
+            wsum += wt;
+            for s in 0..LOCAL_SPEAKERS {
+                let tr = maps[w][s];
+                if tr == usize::MAX || tr >= n_tracks {
+                    continue;
+                }
+                track_p[tr] += wt * prob_at(w, f, s);
+            }
+        }
+        if wsum <= 0.0 {
+            continue;
+        }
         let mut mask = 0u64;
         let mut count = 0usize;
         let mut last = 0usize;
-        for s in 0..LOCAL_SPEAKERS {
-            if windows[w][f][s] {
-                let tr = maps[w][s];
-                if tr == usize::MAX {
-                    continue;
-                }
+        for (tr, &acc) in track_p.iter().enumerate() {
+            if acc / wsum >= STITCH_ACTIVE_THRESHOLD {
                 if tr < 64 {
                     mask |= 1u64 << tr;
                 }
@@ -590,6 +636,7 @@ fn stitch_windows(
     }
 
     let mut windows: Vec<Vec<[bool; LOCAL_SPEAKERS]>> = Vec::with_capacity(starts.len());
+    let mut probs: Vec<Vec<[f32; LOCAL_SPEAKERS]>> = Vec::with_capacity(starts.len());
     let mut f_per = 0usize;
     for &w0 in &starts {
         let w1 = (w0 + SEG_WINDOW).min(len);
@@ -598,9 +645,17 @@ fn stitch_windows(
         let frames = logits.shape()[1];
         f_per = frames;
         let mut act = vec![[false; LOCAL_SPEAKERS]; frames];
+        let mut prob = vec![[0.0f32; LOCAL_SPEAKERS]; frames];
         for f in 0..frames {
+            // Argmax powerset class drives the (unchanged) alignment activity.
             let mut best = 0usize;
             let mut best_v = f32::NEG_INFINITY;
+            // Softmax over the powerset classes -> per-class probability, then
+            // marginalize to per-local-speaker activity probability (sum of the
+            // classes that contain the speaker). Softmax is shift-invariant, so
+            // subtract the max first for numerical stability.
+            let mut denom = 0.0f32;
+            let mut cls_p = [0.0f32; POWERSET_CLASSES];
             for c in 0..POWERSET.len() {
                 let v = logits[[0, f, c]];
                 if v > best_v {
@@ -608,11 +663,24 @@ fn stitch_windows(
                     best = c;
                 }
             }
+            for c in 0..POWERSET.len() {
+                let e = (logits[[0, f, c]] - best_v).exp();
+                cls_p[c] = e;
+                denom += e;
+            }
+            let inv = if denom > 0.0 { 1.0 / denom } else { 0.0 };
+            for c in 0..POWERSET.len() {
+                let p = cls_p[c] * inv;
+                for &s in POWERSET[c] {
+                    prob[f][s] += p;
+                }
+            }
             for &s in POWERSET[best] {
                 act[f][s] = true;
             }
         }
         windows.push(act);
+        probs.push(prob);
     }
 
     if f_per == 0 {
@@ -631,7 +699,7 @@ fn stitch_windows(
         .iter()
         .map(|&w0| (w0 as f64 * f_per as f64 / SEG_WINDOW as f64).round() as usize)
         .collect();
-    let mut timeline = stitch_activity(&windows, &offsets, step);
+    let mut timeline = stitch_activity(&windows, &probs, &offsets, step);
 
     // Trim padding-only tail frames beyond the real audio duration.
     let real_frames = sample_to_frame(len, f_per);
@@ -1536,8 +1604,11 @@ mod tests {
             }
 
             let offsets: Vec<usize> = (0..n_win).map(offset).collect();
-            let base = stitch_activity(&windows, &offsets, step);
-            let alt = stitch_activity(&permuted, &offsets, step);
+            // Empty probs -> the soft aggregation falls back to hard 0/1 votes,
+            // which keeps this a pure-logic check of permutation invariance
+            // (the property must hold independent of the per-frame decision rule).
+            let base = stitch_activity(&windows, &[], &offsets, step);
+            let alt = stitch_activity(&permuted, &[], &offsets, step);
 
             assert_eq!(
                 track_signatures(&base),
