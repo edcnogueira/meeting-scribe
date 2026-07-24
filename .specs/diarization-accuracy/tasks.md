@@ -63,6 +63,10 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
 - [ ] 8. Final checkpoint — targets and non-regression
   - Run the full harness in assert mode: every fixture at or above baseline (2.6), absolute targets met (2.1–2.5), detected speaker counts correct without hint (4.1), fixed-k honored (4.2), RTF ≤ 0.15 (7.1). If a target is missed, tune only within the design's parameter space (chunk length, overlap weighting) and re-run — threshold changes require returning to the design doc. Ensure the whole `cargo test` suite passes.
 
+## Amendments
+
+- [x] 9. De-bias fixtures off the 10 s window grid and re-record fair baseline (user-approved 2026-07-24)
+
 ## Notes
 
 - Tasks marked with `*` are optional (skippable for a faster MVP)
