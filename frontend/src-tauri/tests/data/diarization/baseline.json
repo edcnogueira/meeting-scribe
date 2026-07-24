@@ -1,0 +1,26 @@
+{
+  "generator_version": 1,
+  "recorded_at_commit": "411e897cd1bdd531e242553421b41b456b674817",
+  "fixtures": {
+    "overlap3": {
+      "frame_accuracy": 0.8395989974937343,
+      "detected": 7
+    },
+    "overlap3_degraded": {
+      "frame_accuracy": 0.9047619047619048,
+      "detected": 6
+    },
+    "seq3": {
+      "frame_accuracy": 0.9907621247113164,
+      "detected": 3
+    },
+    "seq3_degraded": {
+      "frame_accuracy": 0.9699769053117783,
+      "detected": 3
+    },
+    "track2": {
+      "frame_accuracy": 0.9922480620155039,
+      "detected": 2
+    }
+  }
+}
