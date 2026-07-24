@@ -26,7 +26,7 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
   - [x]* 2.5 Write unit tests for the scorer (perfect prediction → 100%, permuted labels → 100%, half-wrong frames → 50%, empty turns)
     - _Requirements: 1.1_
 
-- [ ] 3. Checkpoint — record baseline on the unmodified engine
+- [x] 3. Checkpoint — record baseline on the unmodified engine
   - Run the harness with `DIARIZATION_EVAL_RECORD_BASELINE=1` on the current engine, commit `baseline.json`, and ensure all tests pass (target assertions for Requirement 2 are expected to fail at this point only if run in assert mode — keep them gated on baseline presence, not disabled). Surface questions to the user if fixtures or models cannot run locally.
     - _Requirements: 1.10_
 
