@@ -15,15 +15,15 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
     - _Requirements: 1.9_
 
 - [ ] 2. Scorer and evaluation runner
-  - [ ] 2.1 Implement `score()` in test support: 100 ms frames, best cluster→speaker mapping by exhaustive permutation (≤ 3 speakers), returning `EvalResult { frame_accuracy, detected, expected, rtf }`
+  - [x] 2.1 Implement `score()` in test support: 100 ms frames, best cluster→speaker mapping by exhaustive permutation (≤ 3 speakers), returning `EvalResult { frame_accuracy, detected, expected, rtf }`
     - _Requirements: 1.1_
-  - [ ] 2.2 Create integration test `frontend/src-tauri/tests/diarization_accuracy.rs`: define the five fixture specs (`seq3`, `overlap3`, `track2`, `seq3_degraded`, `overlap3_degraded`), resolve the models dir (`MEETILY_DIARIZATION_MODELS_DIR` env override, default `frontend/models/diarization`), skip with explicit messages when models or `say` are missing, run `DiarizationEngine::diarize` per fixture timing only the diarize call (RTF), and print the per-fixture report
+  - [x] 2.2 Create integration test `frontend/src-tauri/tests/diarization_accuracy.rs`: define the five fixture specs (`seq3`, `overlap3`, `track2`, `seq3_degraded`, `overlap3_degraded`), resolve the models dir (`MEETILY_DIARIZATION_MODELS_DIR` env override, default `frontend/models/diarization`), skip with explicit messages when models or `say` are missing, run `DiarizationEngine::diarize` per fixture timing only the diarize call (RTF), and print the per-fixture report
     - _Requirements: 1.2, 1.3, 1.4, 1.6, 1.7, 1.8, 7.2_
-  - [ ] 2.3 Implement baseline handling: `DIARIZATION_EVAL_RECORD_BASELINE=1` writes `tests/data/diarization/baseline.json` (committed); normal runs fail with an instructive message when the baseline is missing and otherwise assert `frame_accuracy >= baseline` per fixture plus the absolute targets (2.1–2.5), detected speaker count equal to ground truth, and RTF ≤ 0.15
+  - [x] 2.3 Implement baseline handling: `DIARIZATION_EVAL_RECORD_BASELINE=1` writes `tests/data/diarization/baseline.json` (committed); normal runs fail with an instructive message when the baseline is missing and otherwise assert `frame_accuracy >= baseline` per fixture plus the absolute targets (2.1–2.5), detected speaker count equal to ground truth, and RTF ≤ 0.15
     - _Requirements: 1.10, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 4.1, 7.1_
-  - [ ] 2.4 Add the identity-stability check: two different-text clips of the same `say` voice → segmentation+embedding → cosine similarity ≥ `IDENTIFICATION_COSINE_SIMILARITY`
+  - [x] 2.4 Add the identity-stability check: two different-text clips of the same `say` voice → segmentation+embedding → cosine similarity ≥ `IDENTIFICATION_COSINE_SIMILARITY`
     - _Requirements: 6.3_
-  - [ ]* 2.5 Write unit tests for the scorer (perfect prediction → 100%, permuted labels → 100%, half-wrong frames → 50%, empty turns)
+  - [x]* 2.5 Write unit tests for the scorer (perfect prediction → 100%, permuted labels → 100%, half-wrong frames → 50%, empty turns)
     - _Requirements: 1.1_
 
 - [ ] 3. Checkpoint — record baseline on the unmodified engine
