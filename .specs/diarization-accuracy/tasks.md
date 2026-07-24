@@ -30,16 +30,16 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
   - Run the harness with `DIARIZATION_EVAL_RECORD_BASELINE=1` on the current engine, commit `baseline.json`, and ensure all tests pass (target assertions for Requirement 2 are expected to fail at this point only if run in assert mode — keep them gated on baseline presence, not disabled). Surface questions to the user if fixtures or models cannot run locally.
     - _Requirements: 1.10_
 
-- [ ] 4. Window stitching in the engine
-  - [ ] 4.1 Implement `StitchedTimeline`, `align_local_speakers` (6-permutation agreement over the 5 s overlap, fresh global track ids for unmatched locals) and `stitch_windows` (hop `SEG_WINDOW/2`, time-based frame alignment, center-most-window-wins for overlapped frames)
+- [x] 4. Window stitching in the engine
+  - [x] 4.1 Implement `StitchedTimeline`, `align_local_speakers` (6-permutation agreement over the 5 s overlap, fresh global track ids for unmatched locals) and `stitch_windows` (hop `SEG_WINDOW/2`, time-based frame alignment, center-most-window-wins for overlapped frames)
     - _Requirements: 3.1_
-  - [ ] 4.2 Implement global `extract_runs` applying the 250 ms bridge and 400 ms minimum on the whole-recording timeline
+  - [x] 4.2 Implement global `extract_runs` applying the 250 ms bridge and 400 ms minimum on the whole-recording timeline
     - _Requirements: 3.1, 3.2_
-  - [ ] 4.3 Rewire `extract_regions` to use `stitch_windows` + `extract_runs`, preserving the `Region` output shape and `diarize()`'s signature and error behavior
+  - [x] 4.3 Rewire `extract_regions` to use `stitch_windows` + `extract_runs`, preserving the `Region` output shape and `diarize()`'s signature and error behavior
     - _Requirements: 3.1, 4.3_
-  - [ ]* 4.4 Write unit tests: `align_local_speakers` on hand-built overlap matrices; `extract_runs` on synthetic timelines including a 350 ms + 350 ms boundary-straddling run that must be retained
+  - [x]* 4.4 Write unit tests: `align_local_speakers` on hand-built overlap matrices; `extract_runs` on synthetic timelines including a 350 ms + 350 ms boundary-straddling run that must be retained
     - _Requirements: 3.1, 3.2_
-  - [ ]* 4.5 Write property test for **Property 5: Stitching is permutation-invariant** (seeded randomized activity matrices, N=200)
+  - [x]* 4.5 Write property test for **Property 5: Stitching is permutation-invariant** (seeded randomized activity matrices, N=200)
     - **Validates: Requirements 3.1**
 
 - [ ] 5. Embedding improvements
