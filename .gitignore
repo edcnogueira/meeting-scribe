@@ -48,6 +48,9 @@ next-env.d.ts
 # Audio files
 *.wav
 
+# Diarization evaluation fixture cache (generated WAVs + ground_truth.json)
+frontend/src-tauri/tests/data/diarization/cache/
+
 # Large media files
 docs/demo.mov
 docs/demo.gif
