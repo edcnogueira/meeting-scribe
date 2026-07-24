@@ -233,3 +233,9 @@ For all window activity matrices and permutations p of local speaker slots in on
 - **Property tests**: the five properties above, seeded randomized (fixed seeds, reproducible failures).
 - **Evaluation harness** (integration test `diarization_accuracy.rs`): the five fixtures, target + baseline assertions, RTF bound, identity-stability check. Skip-not-fail on missing models/TTS so `cargo test` stays green on machines without them; CI (macos-26) has `say` and can download models in a dedicated job if desired (out of scope here).
 - **Regression order**: baseline is recorded from the unmodified engine *before* any engine change lands (task ordering enforces this), so every accuracy change is measured against the true current state.
+
+## Post-implementation notes
+
+- **Overlap stitching weighting**: soft triangular overlap weighting (activity threshold 0.42, `ALIGN_MATCH_IOU` 0.80) replaced the original binary center-most-wins assignment after an empirical parameter sweep — the triangular weights resolve boundary frames more accurately on overlapping speech.
+- **Centroid reassignment**: the centroid-refinement reassignment pass verified as a no-op on the current fixture set (no frames changed cluster). It is retained for fixed-k clustering semantics and future robustness rather than for a measured gain today.
+- **Chunked embeddings**: chunked embedding rarely triggers on the ~45 s fixtures, since most speaker runs carry well under 4 s of exclusive audio; the chunking path exists for longer real-world runs.
