@@ -42,6 +42,7 @@ Speaker diarization in Meeting Scribe (pyannote segmentation-3.0 + WeSpeaker Res
 8. IF the host platform cannot synthesize the fixture audio, THEN THE Evaluation_Harness SHALL skip with an explicit skip message instead of failing.
 9. WHEN the Evaluation_Harness generates a Ground_Truth_Fixture, THE Evaluation_Harness SHALL produce the same speaker timeline for the same generation script version.
 10. WHEN the Evaluation_Harness first runs on the unmodified engine, THE Evaluation_Harness SHALL record the resulting Frame_Accuracy values as the Baseline in a versioned file under the test data directory.
+11. THE Evaluation_Harness SHALL place fixture speaker transitions at times not aligned with the segmentation analysis grid (at least 400 ms away from any multiple of 5 seconds).
 
 ### Requirement 2: Measurable accuracy improvement
 
