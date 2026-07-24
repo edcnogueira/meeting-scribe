@@ -43,7 +43,7 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
     - **Validates: Requirements 3.1**
 
 - [ ] 5. Embedding improvements
-  - [ ] 5.1 Implement `embed_run`: exclusive-sample gathering per run, ~3 s chunked embedding with L2-normalized mean for runs > 6 s, whole-run fallback below 333 ms of exclusive audio, `None` → run excluded from clustering with processing continuing
+  - [x] 5.1 Implement `embed_run`: exclusive-sample gathering per run, ~3 s chunked embedding with L2-normalized mean for runs > 6 s, whole-run fallback below 333 ms of exclusive audio, `None` → run excluded from clustering with processing continuing
     - _Requirements: 2.1, 2.4, 2.5, 4.3_
 
 - [ ] 6. Clustering refinement
