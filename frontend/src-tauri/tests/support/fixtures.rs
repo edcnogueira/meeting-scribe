@@ -31,7 +31,7 @@ pub const SAMPLE_RATE: u32 = 16_000;
 
 /// Bump when the generation logic changes in a way that invalidates cached
 /// fixtures or ground-truth timelines (part of the cache key — Requirement 1.9).
-pub const GENERATOR_VERSION: u32 = 1;
+pub const GENERATOR_VERSION: u32 = 2;
 
 /// A single scripted utterance. `speaker` indexes into [`FixtureSpec::voices`].
 #[derive(Clone, Copy, Debug)]
