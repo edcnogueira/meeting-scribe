@@ -4,7 +4,7 @@
 
 use crate::diarization_engine::model::{
     DiarizationModel, DiarizationModelError, EMBEDDING_FILE, LOCAL_SPEAKERS, POWERSET,
-    SEGMENTATION_FILE, SEG_WINDOW, SR,
+    POWERSET_CLASSES, SEGMENTATION_FILE, SEG_WINDOW, SR,
 };
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -188,6 +188,124 @@ pub fn cluster_agglomerative(
     labels
 }
 
+/// Relabel `labels` in place to contiguous `0..k` in order of first appearance,
+/// where `k` is the number of distinct labels present. Deterministic.
+fn relabel_contiguous(labels: &mut [usize]) {
+    let mut remap: Vec<(usize, usize)> = Vec::new(); // (old_label, new_label)
+    for &l in labels.iter() {
+        if !remap.iter().any(|(old, _)| *old == l) {
+            let next = remap.len();
+            remap.push((l, next));
+        }
+    }
+    for l in labels.iter_mut() {
+        *l = remap.iter().find(|(old, _)| *old == *l).map(|(_, new)| *new).unwrap();
+    }
+}
+
+/// Refine agglomerative labels by nearest-centroid reassignment.
+///
+/// Each iteration recomputes every cluster's centroid (the L2-normalized mean of
+/// its member embeddings) and reassigns each embedding to the centroid it is most
+/// cosine-similar to. Runs up to `iters` iterations, stopping early once a pass
+/// changes no assignment. Fixes agglomerative chaining mistakes without touching
+/// the calibrated thresholds.
+///
+/// Empty-cluster semantics differ by mode (Requirements 4.1 vs 4.2):
+/// - `fixed_k == true` (a Speaker_Count_Hint fixed k): a reassignment that would
+///   empty its source cluster is REJECTED, so the number of distinct clusters is
+///   preserved exactly. This keeps fixed-k output at exactly k clusters (Req 4.2).
+/// - `fixed_k == false` (auto / threshold mode): clusters are ALLOWED to dissolve.
+///   Letting a weak spurious cluster lose all its members drives the detected
+///   speaker count down toward the true count (Req 4.1), which is the dominant
+///   residual defect. After refinement labels are relabeled to contiguous 0..k'
+///   with k' <= k.
+///
+/// Postconditions: labels are always contiguous `0..k'` (first-appearance order).
+/// In fixed-k mode `k' == input k`.
+fn refine_clusters(embeddings: &[Vec<f32>], labels: &mut [usize], fixed_k: bool, iters: usize) {
+    let n = embeddings.len();
+    if n == 0 || labels.is_empty() {
+        return;
+    }
+
+    for _ in 0..iters {
+        // Distinct labels currently in use, and each cluster's member count.
+        let mut distinct: Vec<usize> = Vec::new();
+        for &l in labels.iter() {
+            if !distinct.contains(&l) {
+                distinct.push(l);
+            }
+        }
+        let k = distinct.len();
+        if k <= 1 {
+            break; // nothing to reassign against a single centroid
+        }
+
+        // Recompute centroids: L2-normalized mean of each cluster's embeddings.
+        let dim = embeddings[0].len();
+        let mut centroids: Vec<Vec<f32>> = vec![vec![0.0f32; dim]; k];
+        for (i, &l) in labels.iter().enumerate() {
+            let ci = distinct.iter().position(|d| *d == l).unwrap();
+            for (acc, x) in centroids[ci].iter_mut().zip(embeddings[i].iter()) {
+                *acc += *x;
+            }
+        }
+        for c in centroids.iter_mut() {
+            let norm = c.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-9);
+            for x in c.iter_mut() {
+                *x /= norm;
+            }
+        }
+
+        // Running per-cluster sizes so fixed-k mode can reject an empty-ing move.
+        let mut sizes = vec![0usize; k];
+        for &l in labels.iter() {
+            sizes[distinct.iter().position(|d| *d == l).unwrap()] += 1;
+        }
+
+        // Batch reassignment against the centroids fixed for this iteration.
+        let mut changed = false;
+        for i in 0..n {
+            let cur_ci = distinct.iter().position(|d| *d == labels[i]).unwrap();
+            // Nearest centroid by cosine similarity (embeddings are L2-normalized,
+            // so a dot product is the cosine). Ties keep the lowest index, and the
+            // current cluster is favoured on an exact tie via strict `>`.
+            let mut best_ci = cur_ci;
+            let mut best_sim = cos_sim(&centroids[cur_ci], &embeddings[i]);
+            for ci in 0..k {
+                if ci == cur_ci {
+                    continue;
+                }
+                let sim = cos_sim(&centroids[ci], &embeddings[i]);
+                if sim > best_sim {
+                    best_sim = sim;
+                    best_ci = ci;
+                }
+            }
+            if best_ci == cur_ci {
+                continue;
+            }
+            // Fixed-k: refuse to move the last member out of its cluster.
+            if fixed_k && sizes[cur_ci] <= 1 {
+                continue;
+            }
+            sizes[cur_ci] -= 1;
+            sizes[best_ci] += 1;
+            labels[i] = distinct[best_ci];
+            changed = true;
+        }
+
+        // Normalize labels back to contiguous ids for the next iteration and for
+        // callers (auto mode may have dissolved a cluster).
+        relabel_contiguous(labels);
+
+        if !changed {
+            break;
+        }
+    }
+}
+
 /// Internal speech region carrying its embedding before clustering.
 struct Region {
     start: f32,
@@ -238,8 +356,31 @@ const SLOT_PERMS: [[usize; LOCAL_SPEAKERS]; 6] = [
 /// track (agglomerative clustering later re-merges same-voice tracks by
 /// embedding, which is cheap to undo) rather than being welded onto a different
 /// speaker's track (an impure run, which clustering cannot undo). Empirically
-/// the eval accuracy peaks on a 0.85-0.90 plateau.
-const ALIGN_MATCH_IOU: f32 = 0.9;
+/// the eval accuracy peaks on a 0.85-0.90 plateau. The task-8 soft-weighting
+/// sweep (over [0.80, 0.95]) settled on the low end: a looser floor lets an
+/// overlapping speaker inherit its track across the window seam instead of
+/// spawning a fresh one, which recovers the clean sequential fixtures without
+/// costing the overlap gains.
+const ALIGN_MATCH_IOU: f32 = 0.80;
+
+/// Per-frame activity probability at/above which a global track counts as active
+/// in the soft stitching aggregation. Chosen by the task-8 sweep over [0.40,
+/// 0.60]: 0.42 keeps a lightly-covered overlapping speaker (whose marginal
+/// probability is split across two windows) active while still rejecting the
+/// weak secondary energy that used to smear the sequential fixtures' boundaries.
+const STITCH_ACTIVE_THRESHOLD: f32 = 0.42;
+
+/// Triangular edge weight for a frame `f` of `f_per`: distance from the nearest
+/// window edge (+1 floor so the extreme edges still contribute). Weights each
+/// covering window's per-track probability in the soft aggregation so the window
+/// that sees a frame with the most receptive-field context counts for the most.
+/// Triangular beat Hann and flat-with-margin in the task-8 sweep.
+fn edge_weight(f: usize, f_per: usize) -> f32 {
+    if f_per <= 1 {
+        return 1.0;
+    }
+    (f.min(f_per - 1 - f) as f32) + 1.0
+}
 
 /// Choose the permutation of the next window's local speakers that maximizes
 /// activity-pattern agreement (intersection-over-union) with the previous window
@@ -319,11 +460,20 @@ fn align_local_speakers(
 /// `[frames][LOCAL_SPEAKERS]` bool matrix, all windows share the same frame count
 /// (the segmentation model zero-pads to a fixed window length). `offsets[w]` is
 /// the global frame index where window `w` begins (monotonically increasing).
-/// A global frame covered by two windows is decided by the window where it sits
-/// farther from an edge ("center-most wins"); first/last windows keep their edge
-/// decisions.
+///
+/// `probs[w][f][s]` is the marginal probability that local speaker `s` is active
+/// in window `w` at frame `f` (softmax over the powerset classes, marginalized).
+/// A global frame covered by several windows is decided by **soft overlap
+/// weighting**: each covering window's per-track probability is weighted by an
+/// edge-distance taper (triangular / Hann / flat-with-margin), summed, normalized
+/// by the total weight, and thresholded — a track above `STITCH_ACTIVE_THRESHOLD`
+/// is active, and the frame is exclusive when exactly one track clears it. The bool
+/// `windows` still drive the permutation-alignment chain unchanged; only the
+/// final per-frame decision uses the soft probabilities. When `probs` is empty
+/// the bool activity is reused as hard 0/1 probabilities (pure-logic callers/tests).
 fn stitch_activity(
     windows: &[Vec<[bool; LOCAL_SPEAKERS]>],
+    probs: &[Vec<[f32; LOCAL_SPEAKERS]>],
     offsets: &[usize],
     step: f32,
 ) -> StitchedTimeline {
@@ -384,47 +534,61 @@ fn stitch_activity(
     }
     let n_tracks = next_track;
 
-    // Assign each global frame to a covering window. Among the windows covering
-    // a frame we trust the one that resolves the *most* local speakers there
-    // (a window that missed speech or smeared two voices into one slot resolves
-    // fewer), and break ties by "center-most wins" — the window where the frame
-    // sits farther from an edge has more receptive-field context. First/last
-    // windows keep their edge decisions (nothing else covers those frames).
-    let mut winner_w = vec![0usize; total];
-    let mut winner_f = vec![0usize; total];
-    let mut winner_key = vec![(-1i64, -1i64); total]; // (active_count, dist)
-    for w in 0..n_win {
-        let base = offset(w);
-        for f in 0..f_per {
-            let g = base + f;
-            if g >= total {
-                break;
+    // Soft overlap weighting. For every global frame, aggregate the per-global-
+    // track activity *probability* contributed by each covering window, weighted
+    // by an edge-distance taper (the window where a frame sits farther from an
+    // edge has more receptive-field context, so it counts for more). Normalize by
+    // the total weight and threshold: a track above `threshold` is active, and
+    // the frame is exclusive when exactly one track clears it. This replaces the
+    // former hard "center-most window wins" decision, which discarded the
+    // agreement between overlapping windows and smeared boundary frames.
+    let prob_at = |w: usize, f: usize, s: usize| -> f32 {
+        if probs.is_empty() {
+            if windows[w][f][s] {
+                1.0
+            } else {
+                0.0
             }
-            let count = windows[w][f].iter().filter(|&&a| a).count() as i64;
-            let dist = f.min(f_per - 1 - f) as i64;
-            let key = (count, dist);
-            if key > winner_key[g] {
-                winner_key[g] = key;
-                winner_w[g] = w;
-                winner_f[g] = f;
-            }
+        } else {
+            probs[w][f][s]
         }
-    }
+    };
 
     let mut active = vec![0u64; total];
     let mut exclusive = vec![None; total];
+    let mut track_p = vec![0.0f32; n_tracks];
     for g in 0..total {
-        let w = winner_w[g];
-        let f = winner_f[g];
+        for p in track_p.iter_mut() {
+            *p = 0.0;
+        }
+        let mut wsum = 0.0f32;
+        for w in 0..n_win {
+            let base = offset(w);
+            if g < base {
+                continue;
+            }
+            let f = g - base;
+            if f >= f_per {
+                continue;
+            }
+            let wt = edge_weight(f, f_per).max(1e-6);
+            wsum += wt;
+            for s in 0..LOCAL_SPEAKERS {
+                let tr = maps[w][s];
+                if tr == usize::MAX || tr >= n_tracks {
+                    continue;
+                }
+                track_p[tr] += wt * prob_at(w, f, s);
+            }
+        }
+        if wsum <= 0.0 {
+            continue;
+        }
         let mut mask = 0u64;
         let mut count = 0usize;
         let mut last = 0usize;
-        for s in 0..LOCAL_SPEAKERS {
-            if windows[w][f][s] {
-                let tr = maps[w][s];
-                if tr == usize::MAX {
-                    continue;
-                }
+        for (tr, &acc) in track_p.iter().enumerate() {
+            if acc / wsum >= STITCH_ACTIVE_THRESHOLD {
                 if tr < 64 {
                     mask |= 1u64 << tr;
                 }
@@ -472,6 +636,7 @@ fn stitch_windows(
     }
 
     let mut windows: Vec<Vec<[bool; LOCAL_SPEAKERS]>> = Vec::with_capacity(starts.len());
+    let mut probs: Vec<Vec<[f32; LOCAL_SPEAKERS]>> = Vec::with_capacity(starts.len());
     let mut f_per = 0usize;
     for &w0 in &starts {
         let w1 = (w0 + SEG_WINDOW).min(len);
@@ -480,9 +645,17 @@ fn stitch_windows(
         let frames = logits.shape()[1];
         f_per = frames;
         let mut act = vec![[false; LOCAL_SPEAKERS]; frames];
+        let mut prob = vec![[0.0f32; LOCAL_SPEAKERS]; frames];
         for f in 0..frames {
+            // Argmax powerset class drives the (unchanged) alignment activity.
             let mut best = 0usize;
             let mut best_v = f32::NEG_INFINITY;
+            // Softmax over the powerset classes -> per-class probability, then
+            // marginalize to per-local-speaker activity probability (sum of the
+            // classes that contain the speaker). Softmax is shift-invariant, so
+            // subtract the max first for numerical stability.
+            let mut denom = 0.0f32;
+            let mut cls_p = [0.0f32; POWERSET_CLASSES];
             for c in 0..POWERSET.len() {
                 let v = logits[[0, f, c]];
                 if v > best_v {
@@ -490,11 +663,24 @@ fn stitch_windows(
                     best = c;
                 }
             }
+            for c in 0..POWERSET.len() {
+                let e = (logits[[0, f, c]] - best_v).exp();
+                cls_p[c] = e;
+                denom += e;
+            }
+            let inv = if denom > 0.0 { 1.0 / denom } else { 0.0 };
+            for c in 0..POWERSET.len() {
+                let p = cls_p[c] * inv;
+                for &s in POWERSET[c] {
+                    prob[f][s] += p;
+                }
+            }
             for &s in POWERSET[best] {
                 act[f][s] = true;
             }
         }
         windows.push(act);
+        probs.push(prob);
     }
 
     if f_per == 0 {
@@ -513,7 +699,7 @@ fn stitch_windows(
         .iter()
         .map(|&w0| (w0 as f64 * f_per as f64 / SEG_WINDOW as f64).round() as usize)
         .collect();
-    let mut timeline = stitch_activity(&windows, &offsets, step);
+    let mut timeline = stitch_activity(&windows, &probs, &offsets, step);
 
     // Trim padding-only tail frames beyond the real audio duration.
     let real_frames = sample_to_frame(len, f_per);
@@ -879,11 +1065,15 @@ impl DiarizationEngine {
         }
 
         let embeddings: Vec<Vec<f32>> = regions.iter().map(|r| r.embedding.clone()).collect();
-        let labels = cluster_agglomerative(
+        let mut labels = cluster_agglomerative(
             &embeddings,
             Some(CLUSTER_COSINE_DISTANCE_CUT),
             num_speakers,
         );
+        // Nearest-centroid refinement corrects agglomerative chaining mistakes.
+        // Fixed-k mode (a Speaker_Count_Hint) preserves the cluster count; auto
+        // mode lets spurious clusters dissolve toward the true speaker count.
+        refine_clusters(&embeddings, &mut labels, num_speakers.is_some(), 2);
 
         let turns = regions
             .into_iter()
@@ -1414,14 +1604,148 @@ mod tests {
             }
 
             let offsets: Vec<usize> = (0..n_win).map(offset).collect();
-            let base = stitch_activity(&windows, &offsets, step);
-            let alt = stitch_activity(&permuted, &offsets, step);
+            // Empty probs -> the soft aggregation falls back to hard 0/1 votes,
+            // which keeps this a pure-logic check of permutation invariance
+            // (the property must hold independent of the per-frame decision rule).
+            let base = stitch_activity(&windows, &[], &offsets, step);
+            let alt = stitch_activity(&permuted, &[], &offsets, step);
 
             assert_eq!(
                 track_signatures(&base),
                 track_signatures(&alt),
                 "case {case}: permuting window {w_idx} by {perm:?} changed the global timeline"
             );
+        }
+    }
+
+    /// A random L2-normalized embedding (diarize consumers assume unit vectors).
+    fn rand_embedding(rng: &mut rand::rngs::StdRng, dim: usize) -> Vec<f32> {
+        use rand::Rng;
+        let mut v: Vec<f32> = (0..dim).map(|_| rng.gen_range(-1.0f32..1.0)).collect();
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-9);
+        for x in v.iter_mut() {
+            *x /= norm;
+        }
+        v
+    }
+
+    fn distinct_count(labels: &[usize]) -> usize {
+        let mut seen: Vec<usize> = Vec::new();
+        for &l in labels {
+            if !seen.contains(&l) {
+                seen.push(l);
+            }
+        }
+        seen.len()
+    }
+
+    fn assert_contiguous_from_zero(labels: &[usize]) {
+        let k = distinct_count(labels);
+        for &l in labels {
+            assert!(l < k, "label {l} out of range 0..{k}: {labels:?}");
+        }
+        // Every id in 0..k must appear (contiguity).
+        for id in 0..k {
+            assert!(labels.contains(&id), "id {id} missing from {labels:?}");
+        }
+    }
+
+    /// Property 2: Fixed-k clustering. For random embedding sets and hints
+    /// k in [1, |E|], `cluster_agglomerative(.., Some(k))` + `refine_clusters` in
+    /// fixed-k mode yields contiguous labels with exactly k distinct values.
+    /// Validates Requirement 4.2.
+    #[test]
+    fn prop_fixed_k_clustering_contiguous_exactly_k() {
+        use rand::{Rng, SeedableRng};
+        for case in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(0xC0CE_0000 + case);
+            let dim = 16;
+            let n = rng.gen_range(1..=12usize);
+            let k = rng.gen_range(1..=n);
+            let embs: Vec<Vec<f32>> = (0..n).map(|_| rand_embedding(&mut rng, dim)).collect();
+
+            let mut labels =
+                cluster_agglomerative(&embs, Some(CLUSTER_COSINE_DISTANCE_CUT), Some(k));
+            assert_eq!(
+                distinct_count(&labels),
+                k,
+                "case {case}: agglomerative fixed-k gave {} clusters, want {k}",
+                distinct_count(&labels)
+            );
+
+            refine_clusters(&embs, &mut labels, true, 2);
+
+            assert_contiguous_from_zero(&labels);
+            assert_eq!(
+                distinct_count(&labels),
+                k,
+                "case {case}: fixed-k refinement changed cluster count to {}, want {k}",
+                distinct_count(&labels)
+            );
+        }
+    }
+
+    /// Property 3: Reassignment preserves cluster count. For random embedding sets
+    /// and arbitrary initial labelings with k distinct clusters, fixed-k
+    /// `refine_clusters` leaves the number of distinct labels unchanged at k.
+    /// Validates Requirement 4.2.
+    #[test]
+    fn prop_fixed_k_refinement_preserves_cluster_count() {
+        use rand::seq::SliceRandom;
+        use rand::{Rng, SeedableRng};
+        for case in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(0xC0DE_0000 + case);
+            let dim = 16;
+            let k = rng.gen_range(1..=6usize);
+            let n = rng.gen_range(k..=k + 10);
+            let embs: Vec<Vec<f32>> = (0..n).map(|_| rand_embedding(&mut rng, dim)).collect();
+
+            // Arbitrary labeling that uses exactly k distinct ids: seed 0..k, then
+            // fill the rest at random, then shuffle so cluster ids are scattered.
+            let mut labels: Vec<usize> = (0..k).collect();
+            for _ in k..n {
+                labels.push(rng.gen_range(0..k));
+            }
+            labels.shuffle(&mut rng);
+            assert_eq!(distinct_count(&labels), k);
+
+            refine_clusters(&embs, &mut labels, true, 2);
+
+            assert_eq!(
+                distinct_count(&labels),
+                k,
+                "case {case}: fixed-k refinement changed cluster count to {}, want {k}",
+                distinct_count(&labels)
+            );
+            assert_contiguous_from_zero(&labels);
+        }
+    }
+
+    /// Auto-mode property: after threshold-mode `refine_clusters`, labels remain
+    /// contiguous 0..k' with k' <= k (spurious clusters may dissolve, never grow).
+    /// Supports Requirement 4.1.
+    #[test]
+    fn prop_auto_mode_refinement_contiguous_non_increasing() {
+        use rand::{Rng, SeedableRng};
+        for case in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(0xADD0_0000 + case);
+            let dim = 16;
+            let n = rng.gen_range(1..=14usize);
+            let embs: Vec<Vec<f32>> = (0..n).map(|_| rand_embedding(&mut rng, dim)).collect();
+
+            let mut labels =
+                cluster_agglomerative(&embs, Some(CLUSTER_COSINE_DISTANCE_CUT), None);
+            let k_before = distinct_count(&labels);
+
+            refine_clusters(&embs, &mut labels, false, 2);
+
+            assert_contiguous_from_zero(&labels);
+            let k_after = distinct_count(&labels);
+            assert!(
+                k_after <= k_before.max(1),
+                "case {case}: auto-mode refinement grew clusters {k_before} -> {k_after}"
+            );
+            assert_eq!(labels.len(), n, "case {case}: label count changed");
         }
     }
 }
