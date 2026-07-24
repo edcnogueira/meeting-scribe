@@ -1,25 +1,25 @@
 {
-  "generator_version": 1,
-  "recorded_at_commit": "411e897cd1bdd531e242553421b41b456b674817",
+  "generator_version": 2,
+  "recorded_at_commit": "dcfe7fbfbc92a22750035fb841c5ec7f824e5094",
   "fixtures": {
     "overlap3": {
-      "frame_accuracy": 0.8395989974937343,
-      "detected": 7
+      "frame_accuracy": 0.770935960591133,
+      "detected": 9
     },
     "overlap3_degraded": {
-      "frame_accuracy": 0.9047619047619048,
-      "detected": 6
+      "frame_accuracy": 0.6625615763546798,
+      "detected": 7
     },
     "seq3": {
-      "frame_accuracy": 0.9907621247113164,
-      "detected": 3
+      "frame_accuracy": 0.9742489270386266,
+      "detected": 4
     },
     "seq3_degraded": {
-      "frame_accuracy": 0.9699769053117783,
-      "detected": 3
+      "frame_accuracy": 0.8841201716738197,
+      "detected": 4
     },
     "track2": {
-      "frame_accuracy": 0.9922480620155039,
+      "frame_accuracy": 0.9837209302325581,
       "detected": 2
     }
   }

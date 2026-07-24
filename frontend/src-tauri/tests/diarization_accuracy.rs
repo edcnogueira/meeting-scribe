@@ -50,48 +50,60 @@ fn degradation() -> Degradation {
     }
 }
 
-/// Sequential 3-speaker script: utterances spaced ~5 s so they do not overlap
-/// (~45 s total). Speakers cycle 0 -> 1 -> 2.
+/// Sequential 3-speaker script: utterances placed at irregular, off-grid start
+/// times so they do not overlap (~47 s total). Speakers cycle 0 -> 1 -> 2.
+///
+/// De-biased (LOCAL-9): no start (and, verified after synthesis, no measured
+/// end) lands within 400 ms of a multiple of 5 s, so speaker transitions never
+/// coincide with the engine's non-overlapping 10 s analysis-window grid.
 const SEQ3_SCRIPT: &[Utterance] = &[
-    Utterance { speaker: 0, text: "Good morning everyone, thanks for joining the weekly sync.", start_secs: 0.0 },
-    Utterance { speaker: 1, text: "Happy to be here. I finished the reporting dashboard yesterday.", start_secs: 5.0 },
-    Utterance { speaker: 2, text: "Nice work. On my side the migration scripts are ready for review.", start_secs: 10.0 },
-    Utterance { speaker: 0, text: "Great. Let us walk through the open blockers one by one.", start_secs: 15.0 },
-    Utterance { speaker: 1, text: "The only blocker for me is the staging database credentials.", start_secs: 20.0 },
-    Utterance { speaker: 2, text: "I can share those right after this call, no problem at all.", start_secs: 25.0 },
-    Utterance { speaker: 0, text: "Perfect. Then we should be able to ship by the end of the week.", start_secs: 30.0 },
-    Utterance { speaker: 1, text: "Sounds good to me. I will prepare the release notes tomorrow.", start_secs: 35.0 },
-    Utterance { speaker: 2, text: "And I will run the final round of integration tests.", start_secs: 40.0 },
+    Utterance { speaker: 0, text: "Good morning everyone, thanks for joining the weekly sync.", start_secs: 1.9 },
+    Utterance { speaker: 1, text: "Happy to be here. I finished the reporting dashboard yesterday.", start_secs: 7.1 },
+    Utterance { speaker: 2, text: "Nice work. On my side the migration scripts are ready for review.", start_secs: 12.4 },
+    Utterance { speaker: 0, text: "Great. Let us walk through the open blockers one by one.", start_secs: 17.6 },
+    Utterance { speaker: 1, text: "The only blocker for me is the staging database credentials.", start_secs: 23.3 },
+    Utterance { speaker: 2, text: "I can share those right after this call, no problem at all.", start_secs: 28.7 },
+    Utterance { speaker: 0, text: "Perfect. Then we should be able to ship by the end of the week.", start_secs: 33.4 },
+    Utterance { speaker: 1, text: "Sounds good to me. I will prepare the release notes tomorrow.", start_secs: 38.6 },
+    Utterance { speaker: 2, text: "And I will run the final round of integration tests.", start_secs: 43.3 },
 ];
 
-/// Overlapping 3-speaker script: tighter ~3 s spacing so consecutive utterances
-/// partially overlap (~42 s total).
+/// Overlapping 3-speaker script: tight ~3 s spacing so consecutive utterances
+/// partially overlap (~40 s total).
+///
+/// De-biased (LOCAL-9): the ~3 s cadence is retained (so every overlapping pair
+/// still overlaps) but shifted onto irregular, off-grid start times so no
+/// transition aligns with the 5 s / 10 s analysis grid.
 const OVERLAP3_SCRIPT: &[Utterance] = &[
-    Utterance { speaker: 0, text: "I really think we should reconsider the whole approach here.", start_secs: 0.0 },
-    Utterance { speaker: 1, text: "Wait, but the current design already handles that case fine.", start_secs: 3.0 },
-    Utterance { speaker: 2, text: "Actually I agree with the first point, it is cleaner overall.", start_secs: 6.0 },
-    Utterance { speaker: 0, text: "Exactly, and it would save us a lot of maintenance later on.", start_secs: 9.0 },
-    Utterance { speaker: 1, text: "Fine, but who is going to rewrite all of the existing tests?", start_secs: 12.0 },
-    Utterance { speaker: 2, text: "I can take that on if we split the work across two sprints.", start_secs: 15.0 },
-    Utterance { speaker: 0, text: "Two sprints feels reasonable given everything else in the backlog.", start_secs: 18.0 },
-    Utterance { speaker: 1, text: "Okay, you have convinced me, let us write it up as a proposal.", start_secs: 21.0 },
-    Utterance { speaker: 2, text: "I will start a document and share it with the whole team today.", start_secs: 24.0 },
-    Utterance { speaker: 0, text: "Wonderful, thank you both for being flexible about this change.", start_secs: 27.0 },
-    Utterance { speaker: 1, text: "No problem, it is clearly the better long term decision for us.", start_secs: 30.0 },
-    Utterance { speaker: 2, text: "Agreed, let us reconvene once the proposal draft is finished.", start_secs: 33.0 },
-    Utterance { speaker: 0, text: "Perfect, I will put a follow up meeting on the calendar for us.", start_secs: 36.0 },
+    Utterance { speaker: 0, text: "I really think we should reconsider the whole approach here.", start_secs: 0.9 },
+    Utterance { speaker: 1, text: "Wait, but the current design already handles that case fine.", start_secs: 3.7 },
+    Utterance { speaker: 2, text: "Actually I agree with the first point, it is cleaner overall.", start_secs: 6.8 },
+    Utterance { speaker: 0, text: "Exactly, and it would save us a lot of maintenance later on.", start_secs: 9.4 },
+    Utterance { speaker: 1, text: "Fine, but who is going to rewrite all of the existing tests?", start_secs: 12.3 },
+    Utterance { speaker: 2, text: "I can take that on if we split the work across two sprints.", start_secs: 15.7 },
+    Utterance { speaker: 0, text: "Two sprints feels reasonable given everything else in the backlog.", start_secs: 18.6 },
+    Utterance { speaker: 1, text: "Okay, you have convinced me, let us write it up as a proposal.", start_secs: 21.7 },
+    Utterance { speaker: 2, text: "I will start a document and share it with the whole team today.", start_secs: 24.3 },
+    Utterance { speaker: 0, text: "Wonderful, thank you both for being flexible about this change.", start_secs: 27.2 },
+    Utterance { speaker: 1, text: "No problem, it is clearly the better long term decision for us.", start_secs: 30.6 },
+    Utterance { speaker: 2, text: "Agreed, let us reconvene once the proposal draft is finished.", start_secs: 33.4 },
+    Utterance { speaker: 0, text: "Perfect, I will put a follow up meeting on the calendar for us.", start_secs: 36.7 },
 ];
 
-/// Two-speaker remote-track style script: well separated, ~5 s spacing (~40 s).
+/// Two-speaker remote-track style script: well separated, irregular ~5 s
+/// off-grid spacing (~43 s total).
+///
+/// De-biased (LOCAL-9): starts sit away from every multiple of 5 s so the
+/// alternating speaker transitions do not line up with the analysis grid.
 const TRACK2_SCRIPT: &[Utterance] = &[
-    Utterance { speaker: 0, text: "Thanks for taking the time to talk through the proposal with me.", start_secs: 0.0 },
-    Utterance { speaker: 1, text: "Of course, I read it last night and I have a few questions for you.", start_secs: 5.0 },
-    Utterance { speaker: 0, text: "Please go ahead, I would love to hear your honest feedback on it.", start_secs: 10.0 },
-    Utterance { speaker: 1, text: "My main concern is around the timeline for the second milestone.", start_secs: 15.0 },
-    Utterance { speaker: 0, text: "That is fair, the second milestone is definitely the most ambitious.", start_secs: 20.0 },
-    Utterance { speaker: 1, text: "Could we perhaps move some of that scope into a later phase instead?", start_secs: 25.0 },
-    Utterance { speaker: 0, text: "Yes, I think deferring the analytics work would relieve the pressure.", start_secs: 30.0 },
-    Utterance { speaker: 1, text: "That works for me, let us update the plan and circulate it again.", start_secs: 35.0 },
+    Utterance { speaker: 0, text: "Thanks for taking the time to talk through the proposal with me.", start_secs: 0.9 },
+    Utterance { speaker: 1, text: "Of course, I read it last night and I have a few questions for you.", start_secs: 6.9 },
+    Utterance { speaker: 0, text: "Please go ahead, I would love to hear your honest feedback on it.", start_secs: 12.3 },
+    Utterance { speaker: 1, text: "My main concern is around the timeline for the second milestone.", start_secs: 17.7 },
+    Utterance { speaker: 0, text: "That is fair, the second milestone is definitely the most ambitious.", start_secs: 23.4 },
+    Utterance { speaker: 1, text: "Could we perhaps move some of that scope into a later phase instead?", start_secs: 28.6 },
+    Utterance { speaker: 0, text: "Yes, I think deferring the analytics work would relieve the pressure.", start_secs: 34.2 },
+    Utterance { speaker: 1, text: "That works for me, let us update the plan and circulate it again.", start_secs: 39.3 },
 ];
 
 /// The five evaluation fixtures (Requirements 1.2, 1.3).
