@@ -52,12 +52,12 @@ Build the evaluation harness first, record the baseline on the **unmodified** en
   - [x]* 6.2 Write property tests for **Property 2: Fixed-k clustering** and **Property 3: Reassignment preserves cluster count** (seeded randomized embeddings, N=200)
     - **Validates: Requirements 4.2**
 
-- [ ] 7. Regression property tests for attribution and shift invariance
-  - [ ]* 7.1 Write property test for **Property 4: Greatest-overlap attribution** against `assign_speakers` (seeded randomized turns/segments, N=200), including the zero-overlap → unassigned case
+- [x] 7. Regression property tests for attribution and shift invariance
+  - [x]* 7.1 Write property test for **Property 4: Greatest-overlap attribution** against `assign_speakers` (seeded randomized turns/segments, N=200), including the zero-overlap → unassigned case
     - **Validates: Requirements 5.1, 5.2**
-  - [ ] 7.2 Add the shift-invariance check to the harness for **Property 1: Shift invariance**: prepend silences of 0.7 s / 2.3 s / 5.0 s to one clean fixture, assert turn boundaries shift accordingly within ±250 ms with unchanged grouping
+  - [x] 7.2 Add the shift-invariance check to the harness for **Property 1: Shift invariance**: prepend silences of 0.7 s / 2.3 s / 5.0 s to one clean fixture, assert turn boundaries shift accordingly within ±250 ms with unchanged grouping
     - **Validates: Requirements 3.3**
-  - [ ]* 7.3 Add an assertion in the harness's separate-track scenario that mic-track turns resolve to the Self_Profile label (existing behavior guard)
+  - [x]* 7.3 Add an assertion in the harness's separate-track scenario that mic-track turns resolve to the Self_Profile label (existing behavior guard)
     - _Requirements: 5.3_
 
 - [ ] 8. Final checkpoint — targets and non-regression

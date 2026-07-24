@@ -831,4 +831,97 @@ mod tests {
         assert!(auto_diarize_enabled());
         std::env::remove_var(AUTO_DIARIZE_ENV);
     }
+
+    /// Property 4 (design.md): greatest-overlap attribution. Validates
+    /// Requirements 5.1 and 5.2. For 200 seeded random turn/segment cases,
+    /// `assign_speakers` must label each segment with the speaker whose *summed*
+    /// temporal overlap is maximal, and leave zero-overlap segments unassigned.
+    ///
+    /// The expected answer is recomputed by an independent brute force that
+    /// inlines its own overlap math (it deliberately does not call the module's
+    /// `overlap` helper) and mirrors the implementation's deterministic
+    /// tie-break: `assign_speakers` walks a `BTreeMap` in ascending label order
+    /// through `max_by`, which keeps the *last* maximum, so on an exact tie the
+    /// lexicographically greatest label wins.
+    #[test]
+    fn prop_assign_speakers_greatest_overlap() {
+        use rand::rngs::StdRng;
+        use rand::{Rng, SeedableRng};
+
+        // Independent brute force: summed positive overlap per label, argmax with
+        // the same "last in ascending order" (lexicographically greatest) tie-break.
+        fn expected(seg: &TranscriptBounds, turns: &[LabeledTurn]) -> Option<String> {
+            let mut per: BTreeMap<String, f64> = BTreeMap::new();
+            for t in turns {
+                let ov =
+                    (seg.end_secs.min(t.end_secs) - seg.start_secs.max(t.start_secs)).max(0.0);
+                if ov > 0.0 {
+                    *per.entry(t.label.clone()).or_insert(0.0) += ov;
+                }
+            }
+            per.into_iter()
+                .fold(None, |acc, (label, ov)| match acc {
+                    None => Some((label, ov)),
+                    Some((_, best)) if ov >= best => Some((label, ov)),
+                    Some(prev) => Some(prev),
+                })
+                .map(|(label, _)| label)
+        }
+
+        const LABELS: &[&str] = &["Eu", "Speaker 1", "Speaker 2", "Speaker 3"];
+
+        for case in 0..200u64 {
+            let mut rng = StdRng::seed_from_u64(0x0BEA_0000 + case);
+
+            // Random turns spread over ~[0, 40] s.
+            let n_turns = rng.gen_range(1..=8);
+            let mut turns = Vec::with_capacity(n_turns);
+            let mut max_end = 0.0f64;
+            for _ in 0..n_turns {
+                let start = rng.gen_range(0.0..40.0);
+                let dur = rng.gen_range(0.2..5.0);
+                let end = start + dur;
+                max_end = max_end.max(end);
+                let label = LABELS[rng.gen_range(0..LABELS.len())].to_string();
+                turns.push(LabeledTurn { start_secs: start, end_secs: end, label });
+            }
+
+            // Random segments over the same span...
+            let n_segs = rng.gen_range(1..=6);
+            let mut segs = Vec::with_capacity(n_segs + 1);
+            for i in 0..n_segs {
+                let start = rng.gen_range(0.0..40.0);
+                let dur = rng.gen_range(0.2..4.0);
+                segs.push(TranscriptBounds {
+                    id: format!("c{case}s{i}"),
+                    start_secs: start,
+                    end_secs: start + dur,
+                });
+            }
+            // ...plus one segment placed past every turn: zero overlap -> None.
+            segs.push(TranscriptBounds {
+                id: format!("c{case}far"),
+                start_secs: max_end + 10.0,
+                end_secs: max_end + 12.0,
+            });
+
+            let got = assign_speakers(&segs, &turns);
+            assert_eq!(got.len(), segs.len(), "case {case}: one result per segment");
+            for (seg, (id, label)) in segs.iter().zip(got.iter()) {
+                assert_eq!(id, &seg.id, "case {case}: segment id order preserved");
+                assert_eq!(
+                    label,
+                    &expected(seg, &turns),
+                    "case {case}: segment {} ({:.3}-{:.3}s) mislabeled",
+                    seg.id, seg.start_secs, seg.end_secs
+                );
+            }
+            // The deliberately-disjoint segment is always unassigned (Req 5.2).
+            assert_eq!(
+                got.last().unwrap().1,
+                None,
+                "case {case}: zero-overlap segment must be unassigned"
+            );
+        }
+    }
 }
